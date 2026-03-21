@@ -1,0 +1,230 @@
+{
+  "$schema": "https://opencode.ai/theme.json",
+  "defs": {
+    "paiBlue": "#3B82F6",
+    "paiLightBlue": "#93C5FD",
+    "paiDarkBlue": "#1E3A5F",
+    "paiDeepBlue": "#0C2D48",
+    "paiSteel": "#334155",
+    "paiSilver": "#CBD5E1",
+    "paiSlate100": "#F1F5F9",
+    "paiSlate200": "#E2E8F0",
+    "paiSlate300": "#CBD5E1",
+    "paiSlate400": "#94A3B8",
+    "paiSlate500": "#64748B",
+    "paiSlate600": "#475569",
+    "paiSlate700": "#334155",
+    "paiSlate800": "#1E293B",
+    "paiSlate900": "#0F172A",
+    "paiSlate950": "#020617",
+    "paiGreen": "#22C55E",
+    "paiRed": "#EF4444",
+    "paiYellow": "#EAB308",
+    "paiOrange": "#F97316",
+    "paiPurple": "#A855F7",
+    "paiCyan": "#06B6D4",
+    "paiTeal": "#14B8A6"
+  },
+  "theme": {
+    "primary": {
+      "dark": "paiBlue",
+      "light": "paiDarkBlue"
+    },
+    "secondary": {
+      "dark": "paiLightBlue",
+      "light": "paiDeepBlue"
+    },
+    "accent": {
+      "dark": "paiCyan",
+      "light": "paiTeal"
+    },
+    "error": {
+      "dark": "paiRed",
+      "light": "paiRed"
+    },
+    "warning": {
+      "dark": "paiYellow",
+      "light": "paiOrange"
+    },
+    "success": {
+      "dark": "paiGreen",
+      "light": "#16A34A"
+    },
+    "info": {
+      "dark": "paiLightBlue",
+      "light": "paiBlue"
+    },
+    "text": {
+      "dark": "paiSlate200",
+      "light": "paiSlate800"
+    },
+    "textMuted": {
+      "dark": "paiSlate500",
+      "light": "paiSlate600"
+    },
+    "background": {
+      "dark": "paiSlate950",
+      "light": "paiSlate100"
+    },
+    "backgroundPanel": {
+      "dark": "paiSlate900",
+      "light": "paiSlate200"
+    },
+    "backgroundElement": {
+      "dark": "paiSlate800",
+      "light": "paiSlate300"
+    },
+    "border": {
+      "dark": "paiSlate700",
+      "light": "paiSlate400"
+    },
+    "borderActive": {
+      "dark": "paiBlue",
+      "light": "paiBlue"
+    },
+    "borderSubtle": {
+      "dark": "paiSlate800",
+      "light": "paiSlate300"
+    },
+    "diffAdded": {
+      "dark": "paiGreen",
+      "light": "#16A34A"
+    },
+    "diffRemoved": {
+      "dark": "paiRed",
+      "light": "paiRed"
+    },
+    "diffContext": {
+      "dark": "paiSlate600",
+      "light": "paiSlate500"
+    },
+    "diffHunkHeader": {
+      "dark": "paiSlate600",
+      "light": "paiSlate500"
+    },
+    "diffHighlightAdded": {
+      "dark": "paiGreen",
+      "light": "#16A34A"
+    },
+    "diffHighlightRemoved": {
+      "dark": "paiRed",
+      "light": "paiRed"
+    },
+    "diffAddedBg": {
+      "dark": "#0A2E1A",
+      "light": "#DCFCE7"
+    },
+    "diffRemovedBg": {
+      "dark": "#2E0A0A",
+      "light": "#FEE2E2"
+    },
+    "diffContextBg": {
+      "dark": "paiSlate900",
+      "light": "paiSlate200"
+    },
+    "diffLineNumber": {
+      "dark": "paiSlate600",
+      "light": "paiSlate400"
+    },
+    "diffAddedLineNumberBg": {
+      "dark": "#0A2E1A",
+      "light": "#DCFCE7"
+    },
+    "diffRemovedLineNumberBg": {
+      "dark": "#2E0A0A",
+      "light": "#FEE2E2"
+    },
+    "markdownText": {
+      "dark": "paiSlate200",
+      "light": "paiSlate800"
+    },
+    "markdownHeading": {
+      "dark": "paiBlue",
+      "light": "paiDarkBlue"
+    },
+    "markdownLink": {
+      "dark": "paiLightBlue",
+      "light": "paiBlue"
+    },
+    "markdownLinkText": {
+      "dark": "paiCyan",
+      "light": "paiTeal"
+    },
+    "markdownCode": {
+      "dark": "paiGreen",
+      "light": "#16A34A"
+    },
+    "markdownBlockQuote": {
+      "dark": "paiSlate500",
+      "light": "paiSlate600"
+    },
+    "markdownEmph": {
+      "dark": "paiOrange",
+      "light": "paiOrange"
+    },
+    "markdownStrong": {
+      "dark": "paiYellow",
+      "light": "#CA8A04"
+    },
+    "markdownHorizontalRule": {
+      "dark": "paiSlate700",
+      "light": "paiSlate400"
+    },
+    "markdownListItem": {
+      "dark": "paiBlue",
+      "light": "paiDarkBlue"
+    },
+    "markdownListEnumeration": {
+      "dark": "paiCyan",
+      "light": "paiTeal"
+    },
+    "markdownImage": {
+      "dark": "paiPurple",
+      "light": "paiPurple"
+    },
+    "markdownImageText": {
+      "dark": "paiLightBlue",
+      "light": "paiBlue"
+    },
+    "markdownCodeBlock": {
+      "dark": "paiSlate200",
+      "light": "paiSlate800"
+    },
+    "syntaxComment": {
+      "dark": "paiSlate500",
+      "light": "paiSlate500"
+    },
+    "syntaxKeyword": {
+      "dark": "paiPurple",
+      "light": "#7C3AED"
+    },
+    "syntaxFunction": {
+      "dark": "paiBlue",
+      "light": "paiBlue"
+    },
+    "syntaxVariable": {
+      "dark": "paiCyan",
+      "light": "paiTeal"
+    },
+    "syntaxString": {
+      "dark": "paiGreen",
+      "light": "#16A34A"
+    },
+    "syntaxNumber": {
+      "dark": "paiOrange",
+      "light": "paiOrange"
+    },
+    "syntaxType": {
+      "dark": "paiCyan",
+      "light": "paiTeal"
+    },
+    "syntaxOperator": {
+      "dark": "paiLightBlue",
+      "light": "paiBlue"
+    },
+    "syntaxPunctuation": {
+      "dark": "paiSlate400",
+      "light": "paiSlate600"
+    }
+  }
+}
