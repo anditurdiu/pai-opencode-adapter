@@ -401,11 +401,28 @@ export function translateConfig(
     plugins.push(PAI_PLUGIN_ID);
   }
 
+  // Deep-merge permission.external_directory so user's existing rules are preserved
+  const existingPermission = (baseConfig as Record<string, unknown>).permission as
+    | Record<string, unknown>
+    | undefined;
+  const existingExternalDir = existingPermission?.external_directory as
+    | Record<string, string>
+    | undefined;
+
+  const mergedPermission = {
+    ...existingPermission,
+    external_directory: {
+      ...existingExternalDir,
+      "~/.claude/**": "allow",
+    },
+  };
+
   const openCodeConfig: OpenCodeConfig = {
     ...baseConfig,
     provider,
     model: baseConfig.model || preset.default,
     plugin: plugins,
+    permission: mergedPermission,
   };
 
   // Remove pai key from opencode.json if it was left over from old config

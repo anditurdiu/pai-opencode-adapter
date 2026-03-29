@@ -141,4 +141,4 @@ export const COMPACTION_SURVIVAL_MARKER = "<!-- PAI_SURVIVAL_CONTEXT -->";
 /**
  * Current adapter version
  */
-export const ADAPTER_VERSION = "0.1.0";
+export const ADAPTER_VERSION = "0.2.0";

@@ -321,4 +321,43 @@ describe("translateConfig", () => {
     expect(typeof result.openCodeConfig).toBe("object");
     expect(typeof result.adapterConfig).toBe("object");
   });
+
+  test("adds permission.external_directory with ~/.claude/** allow", () => {
+    const settings: PAISettings = {
+      daidentity: { name: "PAI" },
+    };
+
+    const result = translateConfig(settings);
+    const permission = (result.openCodeConfig as Record<string, unknown>).permission as Record<string, unknown>;
+
+    expect(permission).toBeDefined();
+    expect(permission.external_directory).toBeDefined();
+    const extDir = permission.external_directory as Record<string, string>;
+    expect(extDir["~/.claude/**"]).toBe("allow");
+  });
+
+  test("preserves existing user permissions when merging", () => {
+    const settings: PAISettings = {
+      daidentity: { name: "PAI" },
+    };
+
+    const existing: Partial<OpenCodeConfig> = {
+      permission: {
+        external_directory: {
+          "~/other-dir/**": "allow",
+          "/tmp/logs/**": "deny",
+        },
+      },
+    };
+
+    const result = translateConfig(settings, existing);
+    const permission = (result.openCodeConfig as Record<string, unknown>).permission as Record<string, unknown>;
+    const extDir = permission.external_directory as Record<string, string>;
+
+    // PAI's required permission is present
+    expect(extDir["~/.claude/**"]).toBe("allow");
+    // User's existing permissions are preserved
+    expect(extDir["~/other-dir/**"]).toBe("allow");
+    expect(extDir["/tmp/logs/**"]).toBe("deny");
+  });
 });
