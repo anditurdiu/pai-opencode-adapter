@@ -38,13 +38,13 @@ The PAI-OpenCode Adapter is a **plugin adapter layer**, not a fork. It sits betw
 
 **What this adapter does:**
 
-1. **Event translation** — Maps 20 PAI semantic hooks to 17 OpenCode plugin events
+1. **Event translation** — Maps 20 PAI hook files → 9 semantic events → 7 OpenCode plugin hooks
 2. **Config translation** — Converts `settings.json` to `opencode.json` format
 3. **State management** — Per-session state with automatic cleanup
 4. **Security validation** — Tool gating and input sanitization
 5. **Compaction handling** — Dual proactive and reactive session compaction
 6. **Voice notifications** — ElevenLabs TTS for task completion alerts
-7. **Agent teams** — Multi-agent orchestration via custom OpenCode tools
+7. **Agent teams** — Dispatch tracking scaffold via custom OpenCode tools (tracks agent task assignments; actual agent execution depends on LLM tool-calling)
 
 **What this adapter does NOT do:**
 
@@ -75,7 +75,7 @@ flowchart TB
         B5[security-validator.ts<br/>Tool Gating]
         B6[compaction-handler.ts<br/>Context Survival]
         B7[voice-notifications.ts<br/>TTS Alerts]
-        B8[agent-teams.ts<br/>Agent Orchestration]
+        B8[agent-teams.ts<br/>Dispatch Tracking]
     end
 
     subgraph OPENCODE_API["OpenCode Plugin API"]
@@ -117,7 +117,7 @@ flowchart TB
 | Security Validator | `src/handlers/security-validator.ts` | Tool gating, input sanitization |
 | Compaction Handler | `src/handlers/compaction-handler.ts` | Proactive + reactive compaction |
 | Voice Notifications | `src/handlers/voice-notifications.ts` | ElevenLabs TTS, ntfy, Discord |
-| Agent Teams | `src/handlers/agent-teams.ts` | Multi-agent dispatch via custom tools |
+| Agent Teams | `src/handlers/agent-teams.ts` | Dispatch tracking via custom tools (scaffold) |
 
 **Additional components:**
 
@@ -467,12 +467,12 @@ Each key is a role name, each value is an ordered array of fallback models. When
 
 | Feature | Status | Description |
 |---------|--------|-------------|
-| **Hook Translation** | 🔄 Adapted from PAI | Maps 20 PAI hooks to 17 OpenCode events |
+| **Hook Translation** | 🔄 Adapted from PAI | Maps 20 PAI hooks → 9 semantic events → 7 OpenCode hooks |
 | **Config Translation** | 🔄 Adapted from PAI | `settings.json` → `opencode.json` with merge semantics |
 | **Session State** | 🔄 Adapted from PAI | Per-session `Map<sessionId, T>` with auto-cleanup |
 | **Security Validator** | 🔄 Adapted from PAI | Tool gating, input sanitization, bash command blocking |
 | **Plan Mode** | 🔄 Adapted from PAI | Read-only mode via `/plan` command, blocks destructive tools |
-| **Agent Teams** | 🔄 Adapted from PAI | Multi-agent dispatch via custom OpenCode tools |
+| **Agent Teams** | ⚠️ Scaffold | Dispatch tracking via custom tools — records agent task assignments but does not spawn sub-agents; completion must be signaled externally |
 | **Model Routing** | ✅ Native to OC | User-configurable model-per-role mapping with fallback chains |
 | **Voice Notifications** | 🔄 Adapted from PAI | ElevenLabs TTS, ntfy.sh, Discord webhooks |
 | **StatusLine** | 🔄 Adapted from PAI | tmux status-right integration with phase, tokens, learning signals |
@@ -494,6 +494,7 @@ Each key is a role name, each value is an ordered array of fallback models. When
 - ✅ Native to OC — OpenCode native feature, adapter uses it directly
 - 🔄 Adapted from PAI — PAI feature translated to OpenCode events
 - ⚠️ Limited Support — Feature available with constraints or dependencies
+- ⚠️ Scaffold — Infrastructure in place, not yet fully functional
 
 ---
 
@@ -1019,13 +1020,13 @@ SOFTWARE.
 
 **Initial release:**
 
-- Event translation for 20 PAI hooks
+- Event translation for 20 PAI hooks across 7 OpenCode plugin hooks
 - Config translation with merge semantics
 - Session-scoped state management
 - Security validator with tool gating
 - Dual compaction strategy (proactive + reactive)
 - Voice notifications (ElevenLabs, ntfy, Discord)
-- Agent teams via custom OpenCode tools
+- Agent teams dispatch tracking scaffold via custom OpenCode tools
 - StatusLine tmux integration
 - Self-updater with draft PR creation
 - File-based logging (never console.log)
