@@ -28,8 +28,11 @@ cat >> "$TMUX_CONF" <<EOF
 
 # PAI-OpenCode Adapter StatusLine
 set -g status-interval 2
+set -g status-style 'bg=#1a1b26,fg=#a9b1d6'
 set -g status-right '#(bash ${STATUSLINE_PATH})'
-set -g status-right-length 120
+set -g status-right-length 160
+set -g status-left-length 0
+set -g status-left ''
 EOF
 
 echo "PAI StatusLine installed. Reload tmux config with: tmux source-file ~/.tmux.conf"
