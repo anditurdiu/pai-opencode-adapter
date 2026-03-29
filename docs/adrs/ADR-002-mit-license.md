@@ -1,4 +1,4 @@
-# ADR-002: MIT License (Not SUL-1.0)
+# ADR-002: MIT License
 
 ## Status
 
@@ -6,29 +6,25 @@ Accepted
 
 ## Context
 
-PAI v4.0.3 is licensed under SUL-1.0 (Sustainable Use License), which has restrictions on commercial use and redistribution. The user explicitly requested to "avoid strict licensing if possible" for the adapter.
+Both PAI v4.0.3 and OpenCode are licensed under the MIT License. The adapter needed a license that maximizes adoption, aligns with both upstream projects, and meets the user's preference for permissive licensing.
 
 **Licensing options considered:**
 
-1. **SUL-1.0** — Match PAI's license
-   - Pros: Consistent with upstream, clear derivative work status
-   - Cons: Restricts commercial use, limits adoption, conflicts with user requirement
+1. **MIT** — Permissive open source license
+   - Pros: Maximum adoption, commercial-friendly, simple terms, aligns with both PAI and OpenCode
+   - Cons: No patent grant (not needed for this project)
 
-2. **MIT** — Permissive open source license
-   - Pros: Maximum adoption, commercial-friendly, simple terms, user preference
-   - Cons: Must ensure no SUL-licensed code is imported
-
-3. **Apache 2.0** — Permissive with patent grant
+2. **Apache 2.0** — Permissive with patent grant
    - Pros: Patent protection, commercial-friendly
    - Cons: More complex than needed, no patent issues identified
 
-4. **Dual licensing** — MIT for adapter, SUL-1.0 for PAI content
-   - Pros: Clear separation
-   - Cons: Confusing for users, unnecessary complexity
+3. **AGPL / GPL** — Copyleft licenses
+   - Pros: Ensures derivatives remain open
+   - Cons: Restricts commercial use, limits adoption, unnecessary given MIT upstream
 
-**Key constraint:**
+**Key factor:**
 
-The adapter must NOT import, copy, or derivative any code from upstream SUL-1.0 licensed projects (PAI hooks, PAI skills). The adapter only reads PAI content as data (like reading a config file), not as imported code.
+Both upstream projects (PAI and OpenCode) use MIT, making MIT the natural choice for ecosystem alignment. The adapter reads PAI content as data (like reading a config file), not as imported code, maintaining clean separation.
 
 ## Decision
 
@@ -36,17 +32,16 @@ We chose **MIT License** for the adapter.
 
 **Rationale:**
 
-1. **User requirement** — Explicit request to "avoid strict licensing if possible"
-2. **Maximum adoption** — MIT allows commercial use, modification, and redistribution
-3. **Clean separation** — Adapter is original implementation, not derivative of PAI code
-4. **Precedent** — OpenCode itself uses MIT; adapter aligns with host platform
+1. **Ecosystem alignment** — Both PAI and OpenCode use MIT; adapter matches both
+2. **User requirement** — Explicit request to "avoid strict licensing if possible"
+3. **Maximum adoption** — MIT allows commercial use, modification, and redistribution
+4. **Clean separation** — Adapter is original implementation, not derivative of PAI code
+5. **Simplicity** — MIT is one of the simplest and most widely understood licenses
 
 **Implementation:**
 
 - `LICENSE` file contains full MIT license text
-- All source files include MIT license header
 - README includes MIT badge and license section
-- No imports from upstream SUL-1.0 licensed projects (PAI hooks, PAI skills)
 - PAI content is read as data (JSON, Markdown), not imported as code
 
 **Legal boundaries:**
@@ -60,23 +55,21 @@ We chose **MIT License** for the adapter.
 
 **Positive:**
 
-- **User satisfaction** — Meets explicit user requirement
+- **User satisfaction** — Meets explicit user requirement for permissive licensing
 - **Broader adoption** — Commercial entities can use without legal review
-- **Ecosystem alignment** — Matches OpenCode's MIT license
+- **Ecosystem alignment** — Matches both PAI's and OpenCode's MIT license
 - **Contribution-friendly** — Lower barrier for community contributions
 
 **Negative:**
 
-- **License incompatibility** — Cannot directly merge code from SUL-1.0 projects
-- **Careful auditing** — Must verify no SUL-licensed code is accidentally imported
-- **Documentation burden** — Must clearly explain licensing separation to users
+- **No patent protection** — MIT does not include patent grants (Apache 2.0 does)
+- **Permissive reuse** — Others can use code without contributing back (acceptable tradeoff)
 
 **Follow-ups:**
 
-- Zero upstream SUL-1.0 imports anywhere in codebase
-- Zero PAI hook code imports; only path references and config reads
-- Self-updater creates draft PRs (not auto-merges) to prevent accidental SUL code introduction (see ADR-008)
+- Adapter reads PAI content as data only; no code imports from upstream
+- Self-updater creates draft PRs (not auto-merges) to maintain review control (see ADR-008)
 
 ---
 
-*This ADR ensures the adapter remains permissively licensed while respecting PAI's SUL-1.0 license.*
+*This ADR documents the licensing decision for the PAI-OpenCode Adapter.*

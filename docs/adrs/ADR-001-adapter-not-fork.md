@@ -14,14 +14,14 @@ When building the PAI-OpenCode Adapter, we faced a fundamental architectural dec
 - Full control over implementation details
 - Risk of diverging from upstream PAI updates
 - Merge conflicts when PAI releases new versions
-- Potential licensing complications (SUL-1.0 → MIT conversion unclear)
+- Potential licensing complications if upstream license changes
 
 **Adapter approach considerations:**
 
 - PAI content remains read-only at `~/.claude/`
 - Adapter translates events at runtime
 - Upgrades are diffs (compare versions) not merges (resolve conflicts)
-- Clear separation between PAI (SUL-1.0) and adapter (MIT)
+- Clear separation between PAI content and adapter code (both MIT)
 - Slightly more complex event mapping logic
 
 **Key requirements:**
@@ -56,7 +56,7 @@ The adapter registers hooks on OpenCode events, reads PAI content as needed, and
 **Positive:**
 
 - **Upgrade simplicity** — Updating from PAI v4.0.3 to v4.0.4 is a diff analysis, not a merge conflict resolution
-- **License clarity** — Adapter is MIT; PAI remains SUL-1.0; no derivative work ambiguity
+- **License clarity** — Adapter is MIT; PAI is also MIT; clean separation maintained
 - **PAI integrity** — Impossible to accidentally corrupt PAI installation
 - **Testing isolation** — Adapter can be tested independently of PAI modifications
 - **Community adoption** — Users can adopt adapter without forking/maintaining PAI

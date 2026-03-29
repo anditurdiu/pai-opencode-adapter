@@ -1,6 +1,6 @@
 # Contributing to PAI-OpenCode Adapter
 
-Thanks for your interest in contributing! This guide covers the mechanics of contributing. For technical details on adding handlers and extending the adapter, see the [Contributing section in the README](README.md#contributing).
+Thanks for your interest in contributing! This guide covers the mechanics of contributing.
 
 ## Prerequisites
 
