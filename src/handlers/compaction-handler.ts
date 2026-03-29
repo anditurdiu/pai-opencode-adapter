@@ -5,8 +5,10 @@ import { getMemoryPath, getDateString } from "../lib/paths.js";
 import { getISOTimestamp } from "../lib/time.js";
 import { getContextCacheForTest } from "./context-loader.js";
 import { getSessionSignals } from "./learning-tracker.js";
+import { findLatestPRD, readPRD, parseFrontmatter, countCriteria } from "../lib/prd-utils.js";
 
 const MAX_SURVIVAL_CHARS = 8000;
+const MAX_PRD_SECTION_CHARS = 1500;
 
 export interface CompactionState {
   sessionId: string;
@@ -20,6 +22,40 @@ const compactionMetadata = new Map<string, CompactionState>();
 function ensureDir(dir: string): void {
   if (!existsSync(dir)) {
     mkdirSync(dir, { recursive: true });
+  }
+}
+
+function buildPRDSurvivalSection(): string | null {
+  try {
+    const prdPath = findLatestPRD();
+    if (!prdPath) return null;
+
+    const prd = readPRD(prdPath);
+    if (!prd) return null;
+
+    const fm = parseFrontmatter(prd.content);
+    const { checked, total } = countCriteria(prd.content);
+
+    const phase = fm["phase"] ?? "unknown";
+    const effort = fm["effort"] ?? fm["effort_level"] ?? "unknown";
+    const task = fm["task"] ?? "(no task)";
+
+    const section = [
+      "## Active PRD (Survival — Carry Forward)",
+      "",
+      `**PRD Path:** ${prdPath}`,
+      `**Task:** ${task}`,
+      `**Phase:** ${phase} | **Effort:** ${effort} | **Progress:** ${checked}/${total}`,
+      "",
+      `Resume the Algorithm from phase "${phase}". Read the full PRD at the path above for criteria details.`,
+    ].join("\n");
+
+    return section.length > MAX_PRD_SECTION_CHARS
+      ? section.slice(0, MAX_PRD_SECTION_CHARS) + "\n...[truncated]"
+      : section;
+  } catch (err) {
+    fileLog(`buildPRDSurvivalSection error (fail-open): ${err}`, "warn");
+    return null;
   }
 }
 
@@ -40,6 +76,11 @@ function buildSurvivalContext(sessionId: string): string[] {
       "The following context was active before compaction:\n\n" +
       truncated
     );
+  }
+
+  const prdSection = buildPRDSurvivalSection();
+  if (prdSection !== null) {
+    sections.push(prdSection);
   }
 
   const signals = getSessionSignals(sessionId);
