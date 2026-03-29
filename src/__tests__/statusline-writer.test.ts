@@ -9,6 +9,7 @@ import {
   onSessionEnd,
   getStatus,
   getActiveSessionId,
+  syncFromPRD,
 } from "../handlers/statusline-writer.js";
 
 const TEST_SESSION = "test-statusline-writer";
@@ -239,6 +240,53 @@ describe("statusline-writer", () => {
       const data = readStatusFile(SESSION_FILE);
       expect(data).not.toBeNull();
       expect(data!.messageCount).toBe(20);
+    });
+  });
+
+  describe("new PRD-enriched fields", () => {
+    it("default status includes effortLevel as empty string", () => {
+      onSessionStart(TEST_SESSION);
+      const status = getStatus(TEST_SESSION);
+      expect(status?.effortLevel).toBe("");
+    });
+
+    it("default status includes taskDescription as empty string", () => {
+      onSessionStart(TEST_SESSION);
+      const status = getStatus(TEST_SESSION);
+      expect(status?.taskDescription).toBe("");
+    });
+
+    it("default status includes iscProgress with zeros", () => {
+      onSessionStart(TEST_SESSION);
+      const status = getStatus(TEST_SESSION);
+      expect(status?.iscProgress).toEqual({ checked: 0, total: 0 });
+    });
+
+    it("default status includes algorithmPhase as empty string", () => {
+      onSessionStart(TEST_SESSION);
+      const status = getStatus(TEST_SESSION);
+      expect(status?.algorithmPhase).toBe("");
+    });
+
+    it("new fields are written to disk JSON", () => {
+      onSessionStart(TEST_SESSION);
+      const data = readStatusFile(SESSION_FILE);
+      expect(data).not.toBeNull();
+      expect(data!.effortLevel).toBe("");
+      expect(data!.taskDescription).toBe("");
+      expect(data!.iscProgress).toEqual({ checked: 0, total: 0 });
+      expect(data!.algorithmPhase).toBe("");
+    });
+  });
+
+  describe("syncFromPRD", () => {
+    it("does not throw when no PRD exists", () => {
+      onSessionStart(TEST_SESSION);
+      expect(() => syncFromPRD(TEST_SESSION)).not.toThrow();
+    });
+
+    it("does not throw with empty session ID", () => {
+      expect(() => syncFromPRD("")).not.toThrow();
     });
   });
 });

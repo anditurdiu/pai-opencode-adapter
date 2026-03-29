@@ -10,6 +10,7 @@
 
 import { writeFileSync, renameSync, existsSync, rmSync, readdirSync } from "node:fs";
 import { fileLog } from "../lib/file-logger.js";
+import { findLatestPRD, readPRD, countCriteria } from "../lib/prd-utils.js";
 
 const STATUS_PREFIX = "/tmp/pai-opencode-status";
 
@@ -21,6 +22,11 @@ export interface StatusLineData {
   planMode: boolean;
   activeAgent: string;
   duration: number;
+  // PRD-enriched fields
+  effortLevel: string;
+  taskDescription: string;
+  iscProgress: { checked: number; total: number };
+  algorithmPhase: string;
 }
 
 // Model context window sizes (tokens)
@@ -50,6 +56,10 @@ function defaultStatus(): StatusLineData {
     planMode: false,
     activeAgent: "",
     duration: 0,
+    effortLevel: "",
+    taskDescription: "",
+    iscProgress: { checked: 0, total: 0 },
+    algorithmPhase: "",
   };
 }
 
@@ -252,4 +262,52 @@ export function getStatus(sessionId: string): StatusLineData | undefined {
 
 export function getActiveSessionId(): string | null {
   return activeSessionId;
+}
+
+/**
+ * Sync status from the latest PRD file.
+ * Reads the most recently modified PRD, extracts frontmatter fields
+ * (phase, effort, progress, task) and ISC criteria counts, then merges
+ * them into the in-memory status and writes to disk.
+ *
+ * Called periodically (e.g. on tool.execute.after) to keep the tmux
+ * status bar in sync with Algorithm state without requiring the AI
+ * to explicitly call onPhaseChange with Algorithm phases.
+ */
+export function syncFromPRD(sessionId: string): void {
+  const sid = sessionId || activeSessionId;
+  if (!sid) return;
+
+  try {
+    const prdPath = findLatestPRD();
+    if (!prdPath) return;
+
+    const prd = readPRD(prdPath);
+    if (!prd) return;
+
+    const fm = prd.frontmatter;
+    const criteria = countCriteria(prd.content);
+
+    let status = sessionStatus.get(sid);
+    if (!status) {
+      status = defaultStatus();
+      sessionStatus.set(sid, status);
+    }
+
+    // Map PRD frontmatter to status fields
+    // PRD uses both 'task' and 'title' keys
+    const task = (fm.task ?? fm.title ?? "") as string;
+    const phase = (fm.phase ?? "") as string;
+    const effort = (fm.effort_level ?? fm.effort ?? "") as string;
+
+    if (task) status.taskDescription = task;
+    if (phase) status.algorithmPhase = phase.toUpperCase();
+    if (effort) status.effortLevel = effort.toUpperCase();
+    status.iscProgress = criteria;
+
+    writeStatus(sid, status);
+    fileLog(`[statusline-writer] PRD sync: phase=${phase} effort=${effort} isc=${criteria.checked}/${criteria.total}`, "debug");
+  } catch (err) {
+    fileLog(`[statusline-writer] PRD sync error: ${String(err)}`, "warn");
+  }
 }
