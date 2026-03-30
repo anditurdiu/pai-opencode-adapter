@@ -40,6 +40,7 @@ import {
   onSessionEnd as statuslineSessionEnd,
   setContextLimit as statuslineSetContextLimit,
   syncFromPRD as statuslineSyncFromPRD,
+  clearPRDBinding as statuslineClearPRDBinding,
 } from "../handlers/statusline-writer.js";
 
 import {
@@ -575,6 +576,7 @@ export const PaiPlugin = async (_ctx: unknown) => {
           safeHandler("cleanup.fallbackState", () => clearFallbackState(sid));
           safeHandler("cleanup.implicitSentiment", () => clearImplicitSentimentState(sid));
           safeHandler("cleanup.subagentRegistry", () => subagentSessions.delete(sid));
+          safeHandler("cleanup.prdBinding", () => statuslineClearPRDBinding(sid));
         }
       }
 

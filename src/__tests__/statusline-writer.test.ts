@@ -383,6 +383,8 @@ describe("statusline-writer", () => {
     });
 
     it("updates status fields when PRD phase is active (e.g. execute)", () => {
+      // Use a recent timestamp so the staleness guard (30m) doesn't reject it
+      const recentTimestamp = new Date().toISOString();
       const prdContent = [
         "---",
         "task: Build new feature",
@@ -392,7 +394,7 @@ describe("statusline-writer", () => {
         "progress: 3/8",
         "mode: interactive",
         "started: 2026-03-29T12:00:00Z",
-        "updated: 2026-03-29T12:30:00Z",
+        `updated: ${recentTimestamp}`,
         "---",
         "",
         "## Criteria",

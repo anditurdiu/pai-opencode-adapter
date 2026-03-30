@@ -264,6 +264,40 @@ export function getActiveSessionId(): string | null {
   return activeSessionId;
 }
 
+// Track which PRD slug is bound to the current session so we only
+// display PRD state for work started during THIS session.
+const sessionPRDBinding = new Map<string, string>();
+
+/**
+ * Bind a PRD slug to a session.  Called when the AI creates a new PRD
+ * during this session (detected by seeing a new slug appear that wasn't
+ * there at session start).
+ */
+export function bindPRDToSession(sessionId: string, slug: string): void {
+  sessionPRDBinding.set(sessionId, slug);
+}
+
+/**
+ * Clear the PRD binding for a session.  Called on session.end to
+ * prevent memory leaks and stale bindings.
+ */
+export function clearPRDBinding(sessionId: string): void {
+  sessionPRDBinding.delete(sessionId);
+}
+
+/**
+ * Parse an ISO-8601 timestamp from PRD frontmatter into epoch ms.
+ * Returns 0 if unparseable.
+ */
+function parseTimestamp(ts: string | undefined): number {
+  if (!ts) return 0;
+  const d = new Date(ts);
+  return Number.isNaN(d.getTime()) ? 0 : d.getTime();
+}
+
+/** Max age (ms) for a PRD to be considered "current" — 30 minutes */
+const PRD_STALE_MS = 30 * 60 * 1000;
+
 /**
  * Sync status from the latest PRD file.
  * Reads the most recently modified PRD from the PAI directory
@@ -271,8 +305,14 @@ export function getActiveSessionId(): string | null {
  * progress, task) and ISC criteria counts, then merges them into the
  * in-memory status and writes to disk.
  *
- * Note: We look in the PAI directory (not the adapter's MEMORY/WORK)
- * because PRDs are written by the AI into ~/.claude/MEMORY/WORK/{slug}/.
+ * Guards against stale PRDs from previous sessions:
+ *   1. Skips completed/cancelled PRDs (they're done)
+ *   2. Skips stub PRDs (progress 0/0 with no criteria in body)
+ *   3. Skips PRDs whose `updated` timestamp is older than 30 minutes
+ *   4. If the session already has a bound PRD slug, only syncs from that PRD
+ *
+ * When a stale/invalid PRD is detected, the PRD-enriched status fields
+ * are cleared so the tmux bar shows a clean state.
  *
  * Called on every tool.execute.after to keep the tmux status bar in sync
  * with Algorithm state.
@@ -291,6 +331,9 @@ export function syncFromPRD(sessionId: string): void {
 
     const fm = prd.frontmatter;
     const phase = (fm.phase ?? "") as string;
+    const slug = (fm.slug ?? fm.id ?? "") as string;
+    const progress = (fm.progress ?? "") as string;
+    const updated = (fm.updated ?? "") as string;
 
     // Skip completed/cancelled PRDs — they're not active work
     if (phase.toLowerCase() === "complete" || phase.toLowerCase() === "cancelled") {
@@ -298,6 +341,35 @@ export function syncFromPRD(sessionId: string): void {
     }
 
     const criteria = countCriteria(prd.content);
+
+    // ── Staleness guards ──────────────────────────────────
+    // Guard 1: Stub PRDs — progress "0/0" with no criteria in the body
+    if (progress === "0/0" && criteria.total === 0) {
+      fileLog(`[statusline-writer] PRD sync: skipping stub PRD (${slug || "unknown"})`, "debug");
+      clearPRDStatus(sid);
+      return;
+    }
+
+    // Guard 2: Stale timestamp — PRD not updated in last 30 minutes
+    const updatedMs = parseTimestamp(updated);
+    if (updatedMs > 0 && (Date.now() - updatedMs) > PRD_STALE_MS) {
+      fileLog(`[statusline-writer] PRD sync: skipping stale PRD (${slug || "unknown"}, last updated ${updated})`, "debug");
+      clearPRDStatus(sid);
+      return;
+    }
+
+    // Guard 3: Session binding — if this session has a bound PRD, only
+    // sync from that specific PRD (ignore PRDs from other sessions)
+    const boundSlug = sessionPRDBinding.get(sid);
+    if (boundSlug && slug && slug !== boundSlug) {
+      fileLog(`[statusline-writer] PRD sync: ignoring PRD ${slug} (session bound to ${boundSlug})`, "debug");
+      return;
+    }
+
+    // If no binding exists yet and this PRD looks active, bind it
+    if (!boundSlug && slug && criteria.total > 0) {
+      sessionPRDBinding.set(sid, slug);
+    }
 
     let status = sessionStatus.get(sid);
     if (!status) {
@@ -320,4 +392,21 @@ export function syncFromPRD(sessionId: string): void {
   } catch (err) {
     fileLog(`[statusline-writer] PRD sync error: ${String(err)}`, "warn");
   }
+}
+
+/**
+ * Clear PRD-enriched status fields when the PRD is stale or invalid.
+ * Resets algorithmPhase, effortLevel, taskDescription, and iscProgress
+ * so the tmux bar shows a clean state instead of stale data.
+ */
+function clearPRDStatus(sessionId: string): void {
+  const status = sessionStatus.get(sessionId);
+  if (!status) return;
+
+  status.algorithmPhase = "";
+  status.effortLevel = "";
+  status.taskDescription = "";
+  status.iscProgress = { checked: 0, total: 0 };
+
+  writeStatus(sessionId, status);
 }
