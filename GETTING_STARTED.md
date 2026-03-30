@@ -586,17 +586,12 @@ echo $PAI_DIR
 2. Check memory files exist: `ls -la ~/.claude/memory/`
 3. Ensure the adapter is loaded (check plugin entry in `~/.config/opencode/opencode.json`)
 
-### Agent Teams Not Working
+### Agent Teams
 
-**Symptom**: `agent_team_create`, `agent_team_dispatch`, or `agent_team_collect` return errors or teammates never complete.
+The adapter no longer ships custom agent team tools (`agent_team_*`). For multi-agent work:
 
-**Note:** The adapter's agent team tools are a **fire-and-forget coordination layer**, not a full port of Claude Code's native agent teams. They do not support multi-turn coordination, shared task boards, worktree isolation, or inline result return. See `COMPATIBILITY.md §7` for the full gap analysis.
-
-**Solutions**:
-1. Verify the plugin loaded after the last code change — check `~/.local/share/opencode/opencode.db` for your newest sessions, and restart OpenCode if the plugin timestamp is older than your last edit.
-2. If `agent_team_status` shows teammates stuck on `"running"` permanently, check `/tmp/pai-opencode-debug.log` for `updateTeammateStatusGlobal` entries — if `registrySize=0`, the plugin restarted and lost in-memory state.
-3. If `agent_team_collect` returns empty, confirm the teammate status is `"idle"` (not `"running"`) before calling collect.
-4. Agent team tools work with any OpenCode-supported provider — they are not Claude-specific.
+- **Today:** The model uses OpenCode's native `Task` tool for sub-agent spawning automatically.
+- **When native teams land in stable:** OpenCode's `dev` branch has a full native agent teams implementation (PRs #12730–12732) with task boards, peer-to-peer messaging, and multi-provider support. Watch the OpenCode changelog.
 
 ### Notifications Not Arriving
 

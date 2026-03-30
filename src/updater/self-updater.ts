@@ -66,7 +66,6 @@ const OC_BASELINE_EVENTS = [
 
 const KNOWN_WORKAROUNDS = [
   { workaround: "dedup-cache", feature: "message.dedup", retireWhen: "OpenCode adds native dedup" },
-  { workaround: "agent-teams", feature: "native-agent-teams", retireWhen: "OpenCode adds native agent orchestration that replaces SDK-based adapter implementation" },
   { workaround: "plan-mode", feature: "native-plan-mode", retireWhen: "OpenCode adds plan/edit mode toggle" },
 ];
 
@@ -128,7 +127,7 @@ export function detectOpenCodeApiChanges(
 
 function findAffectedHandlers(event: string): string[] {
   const mapping: Record<string, string[]> = {
-    "tool.execute.after": ["learning-tracker", "agent-teams"],
+    "tool.execute.after": ["learning-tracker"],
     "tool.execute.before": ["security-validator", "plan-mode"],
     "permission.ask": ["security-validator"],
     "chat.message": ["learning-tracker", "compaction-handler"],

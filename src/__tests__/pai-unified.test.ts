@@ -50,30 +50,9 @@ describe("hook registration", () => {
 });
 
 describe("tool registration", () => {
-  it("has tool object with agent_team_create", () => {
+  it("tool block is present", () => {
     const tools = hooks["tool"] as Record<string, unknown>;
     expect(typeof tools).toBe("object");
-    expect(typeof tools["agent_team_create"]).toBe("object");
-  });
-
-  it("has agent_team_dispatch tool", () => {
-    const tools = hooks["tool"] as Record<string, unknown>;
-    expect(typeof tools["agent_team_dispatch"]).toBe("object");
-  });
-
-  it("has agent_team_message tool", () => {
-    const tools = hooks["tool"] as Record<string, unknown>;
-    expect(typeof tools["agent_team_message"]).toBe("object");
-  });
-
-  it("has agent_team_status tool", () => {
-    const tools = hooks["tool"] as Record<string, unknown>;
-    expect(typeof tools["agent_team_status"]).toBe("object");
-  });
-
-  it("has agent_team_collect tool", () => {
-    const tools = hooks["tool"] as Record<string, unknown>;
-    expect(typeof tools["agent_team_collect"]).toBe("object");
   });
 
   it("each tool has description and execute", () => {

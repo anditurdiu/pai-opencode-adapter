@@ -26,7 +26,7 @@ This adapter lets you run the **full PAI experience** on OpenCode with **any LLM
 
 The PAI-OpenCode Adapter is a **plugin adapter layer**, not a fork. It sits between PAI content (hooks, settings, agents) and the OpenCode plugin API, translating events and configurations so your PAI workflows run unchanged on OpenCode.
 
-**What it does:** Event translation (20 PAI hooks → 7 OpenCode hooks), config translation, session state management, security validation, compaction handling, voice notifications, and fire-and-forget agent team dispatch (create/dispatch/status/collect — partial CC parity, see [COMPATIBILITY.md §7](COMPATIBILITY.md)).
+**What it does:** Event translation (20 PAI hooks → 7 OpenCode hooks), config translation, session state management, security validation, compaction handling, and voice notifications.
 
 **What it doesn't do:** Modify PAI source files, add npm dependencies beyond TypeScript, or auto-merge updates.
 

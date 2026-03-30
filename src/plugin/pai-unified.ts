@@ -41,17 +41,7 @@ import {
   setContextLimit as statuslineSetContextLimit,
   syncFromPRD as statuslineSyncFromPRD,
 } from "../handlers/statusline-writer.js";
-import {
-  agentTeamCreate,
-  agentTeamDispatch,
-  agentTeamMessage,
-  agentTeamStatus,
-  agentTeamCollect,
-  clearAgentTeamsState,
-  updateTeammateStatusGlobal,
-  type AgentTeamsClient,
-  type SdkSessionClient,
-} from "../handlers/agent-teams.js";
+
 import {
   onLifecycleSessionStart,
   onLifecycleMessage,
@@ -127,25 +117,6 @@ function safeHandler<T>(name: string, fn: () => T): T | undefined {
  */
 export const PaiPlugin = async (_ctx: unknown) => {
   fileLog(`[pai-unified] plugin initialized: ${PLUGIN_NAME}@${PLUGIN_VERSION}`);
-
-  // Build agent teams client using the SDK client from PluginInput.
-  // IMPORTANT: The SDK client routes requests via Bun's in-process server handler —
-  // OpenCode does NOT bind a real TCP port. Using direct fetch() to serverUrl will
-  // fail with "Unable to connect" because there is no listening socket.
-  // We must use input.client (which has Server.App().fetch wired as its transport).
-  //
-  // The v1 SDK uses `{id}` (not `{sessionID}`) in URL templates. We call all SDK
-  // methods with correct v1 param structure: path: { id }, body: { ... }, query: { ... }.
-  const pluginInput = _ctx as { client?: SdkSessionClient; serverUrl?: URL | string; directory?: string } | undefined;
-  const rawSdkClient = pluginInput?.client as SdkSessionClient | undefined;
-  const sdkClient: AgentTeamsClient | null = rawSdkClient?.session
-    ? { sdkClient: rawSdkClient, directory: pluginInput?.directory }
-    : null;
-  if (sdkClient) {
-    fileLog(`[pai-unified] agent teams client configured (SDK in-process routing)`);
-  } else {
-    fileLog(`[pai-unified] WARNING: no SDK client available, agent teams will be disabled`);
-  }
 
   // Sync agent model assignments from pai-adapter.json into agent .md files.
   // This ensures the `model:` field in each agent's YAML frontmatter matches
@@ -457,15 +428,6 @@ export const PaiPlugin = async (_ctx: unknown) => {
         if (sid) {
           safeHandler("learning.flush.idle", () => { flushSessionLearnings(sid); });
         }
-
-        // Update agent team teammate status when their session goes idle.
-        // Uses global scan since the event only carries the teammate's session ID,
-        // not the coordinator's.
-        if (sid) {
-          safeHandler("agentTeams.idle", () => {
-            updateTeammateStatusGlobal(sid, "idle");
-          });
-        }
       }
 
       // OpenCode emits "session.created"; Claude Code emits "session.start".
@@ -546,7 +508,6 @@ export const PaiPlugin = async (_ctx: unknown) => {
           safeHandler("cleanup.learning", () => clearLearningState(sid));
           safeHandler("cleanup.planMode", () => clearPlanModeState(sid));
           safeHandler("cleanup.compaction", () => clearCompactionState(sid));
-          safeHandler("cleanup.agentTeams", () => clearAgentTeamsState(sid));
           safeHandler("cleanup.dedup", () => clearSessionDedup(sid));
           safeHandler("cleanup.fallbackState", () => clearFallbackState(sid));
           safeHandler("cleanup.implicitSentiment", () => clearImplicitSentimentState(sid));
@@ -557,82 +518,7 @@ export const PaiPlugin = async (_ctx: unknown) => {
     },
 
     // ── tool (custom tools exposed to the LLM) ──────────────
-    tool: {
-      agent_team_create: tool({
-        description: "Create a new agent team for coordinating parallel work",
-        args: {
-          teamName: tool.schema.string().describe("Name for the team"),
-        },
-        execute: async (args, context) => {
-          if (!sdkClient) return JSON.stringify({ success: false, error: "SDK client not available" });
-          const result = await agentTeamCreate(sdkClient, context.sessionID, args.teamName, context.directory);
-          return JSON.stringify(result);
-        },
-      }),
-      agent_team_dispatch: tool({
-        description: "Dispatch a teammate to work on a task within an agent team",
-        args: {
-          teamName: tool.schema.string().describe("Name of the team"),
-          teammateName: tool.schema.string().describe("Name for this teammate"),
-          task: tool.schema.string().describe("Task description for the teammate"),
-          agent: tool.schema.string().optional().describe("Agent type to use (optional)"),
-        },
-        execute: async (args, context) => {
-          if (!sdkClient) return JSON.stringify({ success: false, error: "SDK client not available" });
-          const result = await agentTeamDispatch(
-            sdkClient,
-            context.sessionID,
-            args.teamName,
-            args.teammateName,
-            args.task,
-            args.agent,
-            context.directory,
-          );
-          return JSON.stringify(result);
-        },
-      }),
-      agent_team_message: tool({
-        description: "Send a message to an existing teammate in an agent team",
-        args: {
-          teamName: tool.schema.string().describe("Name of the team"),
-          teammateName: tool.schema.string().describe("Name of the teammate"),
-          message: tool.schema.string().describe("Message to send"),
-        },
-        execute: async (args, context) => {
-          if (!sdkClient) return JSON.stringify({ success: false, error: "SDK client not available" });
-          const result = await agentTeamMessage(
-            sdkClient,
-            context.sessionID,
-            args.teamName,
-            args.teammateName,
-            args.message,
-            context.directory,
-          );
-          return JSON.stringify(result);
-        },
-      }),
-      agent_team_status: tool({
-        description: "Get status of all agent teams and their teammates",
-        args: {
-          teamName: tool.schema.string().optional().describe("Filter by team name (optional)"),
-        },
-        execute: async (args, context) => {
-          const result = agentTeamStatus(context.sessionID, args.teamName);
-          return JSON.stringify(result);
-        },
-      }),
-      agent_team_collect: tool({
-        description: "Collect results from completed teammate sessions",
-        args: {
-          teamName: tool.schema.string().optional().describe("Filter by team name (optional)"),
-        },
-        execute: async (args, context) => {
-          if (!sdkClient) return JSON.stringify({ success: false, error: "SDK client not available" });
-          const result = await agentTeamCollect(sdkClient, context.sessionID, args.teamName, context.directory);
-          return JSON.stringify(result);
-        },
-      }),
-    },
+    tool: {},
   };
 };
 

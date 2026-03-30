@@ -21,7 +21,6 @@ flowchart TB
         B5[security-validator.ts<br/>Tool Gating]
         B6[compaction-handler.ts<br/>Context Survival]
         B7[voice-notifications.ts<br/>TTS Alerts]
-        B8[agent-teams.ts<br/>Dispatch Tracking]
     end
 
     subgraph OPENCODE_API["OpenCode Plugin API"]
@@ -63,7 +62,7 @@ flowchart TB
 | Security Validator | `src/handlers/security-validator.ts` | Tool gating, input sanitization |
 | Compaction Handler | `src/handlers/compaction-handler.ts` | Proactive + reactive compaction |
 | Voice Notifications | `src/handlers/voice-notifications.ts` | ElevenLabs TTS, ntfy, Discord |
-| Agent Teams | `src/handlers/agent-teams.ts` | Fire-and-forget session dispatch; in-memory status tracking; text-only collect (partial CC parity — no task board, multi-turn, or worktree isolation) |
+| Agent Teams | — | Removed — native OC teams ship on dev branch (PRs #12730–12732); use OpenCode Task tool in the interim |
 
 ## Additional Components
 
