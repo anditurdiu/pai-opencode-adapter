@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeAll } from "bun:test";
-import PaiPlugin, { healthCheck } from "../plugin/pai-unified.js";
+import { describe, it, expect, beforeAll, afterAll } from "bun:test";
+import PaiPlugin, { healthCheck, _subagentSessionsForTest } from "../plugin/pai-unified.js";
 
 // The plugin is now a function — call it once to get the hooks object
 let hooks: Record<string, unknown>;
@@ -77,7 +77,7 @@ describe("healthCheck", () => {
 
   it("returns version", () => {
     const result = healthCheck();
-    expect(result.version).toBe("0.1.0");
+    expect(result.version).toBe("0.7.0");
   });
 });
 
@@ -299,5 +299,131 @@ describe("task invocation logging", () => {
     await expect(
       fn({ tool: "bash", sessionID: "test-session", args: { command: "ls" } }, {}),
     ).resolves.toBeUndefined();
+  });
+});
+
+describe("subagent Task tool blocking", () => {
+  const subagentSid = "test-subagent-block-session";
+
+  beforeAll(() => {
+    // Register the session as a subagent
+    _subagentSessionsForTest.add(subagentSid);
+  });
+
+  afterAll(() => {
+    _subagentSessionsForTest.delete(subagentSid);
+  });
+
+  it("blocks Task tool for subagent session", async () => {
+    const fn = hooks["tool.execute.before"] as (i: unknown, o: unknown) => Promise<void>;
+    const output: { block?: boolean; reason?: string } = {};
+    await fn(
+      { tool: "Task", sessionID: subagentSid, args: { subagent_type: "engineer", description: "test" } },
+      output,
+    );
+    expect(output.block).toBe(true);
+    expect(output.reason).toContain("Subagents cannot use");
+  });
+
+  it("blocks task tool (lowercase) for subagent session", async () => {
+    const fn = hooks["tool.execute.before"] as (i: unknown, o: unknown) => Promise<void>;
+    const output: { block?: boolean; reason?: string } = {};
+    await fn(
+      { tool: "task", sessionID: subagentSid, args: { subagent_type: "explorer" } },
+      output,
+    );
+    expect(output.block).toBe(true);
+  });
+
+  it("does NOT block Skill tool for subagent session", async () => {
+    const fn = hooks["tool.execute.before"] as (i: unknown, o: unknown) => Promise<void>;
+    const output: { block?: boolean; reason?: string } = {};
+    await fn(
+      { tool: "Skill", sessionID: subagentSid, args: { name: "Research" } },
+      output,
+    );
+    expect(output.block).toBeUndefined();
+  });
+
+  it("does NOT block skill tool (lowercase) for subagent session", async () => {
+    const fn = hooks["tool.execute.before"] as (i: unknown, o: unknown) => Promise<void>;
+    const output: { block?: boolean; reason?: string } = {};
+    await fn(
+      { tool: "skill", sessionID: subagentSid, args: { name: "FirstPrinciples" } },
+      output,
+    );
+    expect(output.block).toBeUndefined();
+  });
+
+  it("blocked Task call returns helpful message mentioning Skill as alternative", async () => {
+    const fn = hooks["tool.execute.before"] as (i: unknown, o: unknown) => Promise<void>;
+    const output: { block?: boolean; reason?: string } = {};
+    await fn(
+      { tool: "Task", sessionID: subagentSid, args: { subagent_type: "thinker" } },
+      output,
+    );
+    expect(output.reason).toContain("Skill tool");
+  });
+
+  it("does NOT block Task tool for primary (non-subagent) session", async () => {
+    const fn = hooks["tool.execute.before"] as (i: unknown, o: unknown) => Promise<void>;
+    const output: { block?: boolean; reason?: string } = {};
+    await fn(
+      { tool: "Task", sessionID: "primary-session-xyz", args: { subagent_type: "engineer" } },
+      output,
+    );
+    expect(output.block).toBeUndefined();
+  });
+
+  it("does NOT block bash tool for subagent session (non-voice)", async () => {
+    const fn = hooks["tool.execute.before"] as (i: unknown, o: unknown) => Promise<void>;
+    const output: { block?: boolean; reason?: string } = {};
+    await fn(
+      { tool: "bash", sessionID: subagentSid, args: { command: "ls -la" } },
+      output,
+    );
+    expect(output.block).toBeUndefined();
+  });
+});
+
+describe("subagent preamble injection in system.transform", () => {
+  const subagentSid = "test-subagent-preamble-session";
+
+  beforeAll(() => {
+    _subagentSessionsForTest.add(subagentSid);
+  });
+
+  afterAll(() => {
+    _subagentSessionsForTest.delete(subagentSid);
+  });
+
+  it("subagent session receives preamble in output.system", async () => {
+    const fn = hooks["experimental.chat.system.transform"] as (i: unknown, o: unknown) => Promise<void>;
+    const output = { system: [] as string[] };
+    await fn({ sessionID: subagentSid, model: "test-model" }, output);
+    const combined = output.system.join("\n");
+    expect(combined).toContain("You Are a Subagent");
+  });
+
+  it("primary session does NOT receive preamble", async () => {
+    const fn = hooks["experimental.chat.system.transform"] as (i: unknown, o: unknown) => Promise<void>;
+    const output = { system: [] as string[] };
+    await fn({ sessionID: "primary-session-no-preamble", model: "test-model" }, output);
+    const combined = output.system.join("\n");
+    expect(combined).not.toContain("You Are a Subagent");
+  });
+
+  it("preamble appears before PAI context in output.system", async () => {
+    const fn = hooks["experimental.chat.system.transform"] as (i: unknown, o: unknown) => Promise<void>;
+    const output = { system: [] as string[] };
+    await fn({ sessionID: subagentSid, model: "test-model" }, output);
+    // Preamble should be the first element that contains "Subagent"
+    const preambleIdx = output.system.findIndex(s => s.includes("You Are a Subagent"));
+    expect(preambleIdx).toBeGreaterThanOrEqual(0);
+    // Any Algorithm context should come after
+    const algoIdx = output.system.findIndex(s => s.includes("Algorithm"));
+    if (algoIdx >= 0) {
+      expect(preambleIdx).toBeLessThan(algoIdx);
+    }
   });
 });

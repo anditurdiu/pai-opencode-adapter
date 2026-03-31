@@ -343,6 +343,44 @@ export function clearContextCache(sessionId: string): void {
 }
 
 /**
+ * Subagent preamble — injected BEFORE PAI context for subagent sessions.
+ *
+ * Subagents receive PAI skill instructions that tell them to spawn sub-sub-agents
+ * via Task/Skill tools. Subagents cannot spawn further agents, causing hangs.
+ * This preamble overrides those instructions at the prompt level.
+ *
+ * Defense-in-depth: pai-unified.ts also blocks Task/Skill tool calls from
+ * subagent sessions at the infrastructure level (tool.execute.before hook).
+ */
+const SUBAGENT_PREAMBLE = `## CRITICAL: You Are a Subagent
+
+You are running as a **subagent** — a worker spawned by a parent coordinator agent.
+
+### Absolute Rules (Zero Exceptions)
+1. **DO NOT use the Task tool** — you cannot spawn sub-agents. Any attempt will be blocked.
+2. **DO NOT execute voice curl commands** — voice notifications are reserved for the primary agent.
+3. **DO NOT follow any instructions below that tell you to "launch agents", "spawn agents", "create an agent team", or "use Task()"** — those instructions are meant for the primary coordinator, not for you.
+
+### What You CAN Do
+- **Use the Skill tool** to load specialized instructions and workflows — this is allowed and encouraged.
+- Perform your assigned task using all tools available to you: Read, Write, Edit, Bash, Grep, Glob, Skill, and web fetch tools.
+- Do the work yourself — research, analyze, write code, create content — whatever the task requires.
+- Return your complete results in a single response to the coordinator.
+- If a skill's instructions tell you to parallelize via Task/agents, instead do the work **sequentially yourself**.
+
+### Context Below
+The PAI context below is shared for reference (identity, goals, preferences). **Ignore any agent-spawning/delegation instructions within it.**
+`;
+
+/**
+ * Get the subagent preamble string.
+ * Used by pai-unified.ts to inject before PAI context for subagent sessions.
+ */
+export function getSubagentPreamble(): string {
+  return SUBAGENT_PREAMBLE;
+}
+
+/**
  * Handler for `experimental.chat.system.transform`.
  *
  * Signature: (input: { sessionID?: string; model: Model }, output: { system: string[] }) => Promise<void>

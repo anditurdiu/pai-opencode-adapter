@@ -10,7 +10,7 @@ import {
   permissionGateHandler,
   inputValidationHandler,
 } from "../handlers/security-validator.js";
-import { contextLoaderHandler, clearContextCache } from "../handlers/context-loader.js";
+import { contextLoaderHandler, clearContextCache, getSubagentPreamble } from "../handlers/context-loader.js";
 import {
   planModePermissionHandler,
   planModeMessageHandler,
@@ -63,7 +63,7 @@ import {
 import { syncAgentModels } from "../lib/agent-model-sync.js";
 
 const PLUGIN_NAME = "pai-adapter";
-const PLUGIN_VERSION = "0.1.0";
+const PLUGIN_VERSION = "0.7.0";
 
 /**
  * Detect whether a session event belongs to a sub-agent (not the main session).
@@ -217,6 +217,22 @@ export const PaiPlugin = async (_ctx: unknown) => {
         safeHandler("statusline.setContextLimit", () => statuslineSetContextLimit(sid, model));
       }
 
+      // ── Subagent preamble injection ──
+      // Subagents receive PAI skill instructions that tell them to spawn
+      // sub-sub-agents via Task/Skill tools. Since subagents can't spawn
+      // further agents, this causes hangs. Inject a preamble BEFORE the
+      // PAI context that explicitly overrides spawning instructions.
+      if (sid && isKnownSubagent(sid)) {
+        safeHandler("subagent.preamble", () => {
+          const systemArr = (output as { system: string[] }).system;
+          systemArr.push(getSubagentPreamble());
+          fileLog(
+            `[subagent-context] Injected subagent preamble for session ${sid.slice(0, 8)}`,
+            "info",
+          );
+        });
+      }
+
       safeHandler("contextLoader", () =>
         contextLoaderHandler(
           input as { sessionID?: string; model?: unknown },
@@ -279,6 +295,31 @@ export const PaiPlugin = async (_ctx: unknown) => {
             "Voice notifications are reserved for the primary coordinator session";
           return;
         }
+      }
+
+      // ── Task tool blocking for sub-agent sessions ──
+      // Sub-agents receive PAI skill instructions that tell them to spawn
+      // sub-sub-agents via Task tool. Since subagents can't spawn further
+      // agents, these calls would hang. We block them here with a helpful
+      // message, mirroring the voice curl blocking pattern above.
+      // NOTE: Skill tool is NOT blocked — subagents can and should load
+      // skill instructions to guide their work.
+      const toolNameForAgentBlock = String(input.tool ?? input.toolName ?? "");
+      const sidForAgentBlock = String(input.sessionID ?? input.sessionId ?? "");
+      if (
+        sidForAgentBlock &&
+        isKnownSubagent(sidForAgentBlock) &&
+        (toolNameForAgentBlock === "task" ||
+          toolNameForAgentBlock === "Task")
+      ) {
+        fileLog(
+          `[agent-block] Blocked ${toolNameForAgentBlock} call from sub-agent session ${sidForAgentBlock.slice(0, 8)}`,
+          "info",
+        );
+        (output as { block?: boolean; reason?: string }).block = true;
+        (output as { block?: boolean; reason?: string }).reason =
+          `Subagents cannot use the ${toolNameForAgentBlock} tool to spawn sub-agents. Perform the work directly yourself, or use the Skill tool to load specialized instructions.`;
+        return;
       }
 
       // ── Skill/Task invocation logging (proves native OC tools are called) ──

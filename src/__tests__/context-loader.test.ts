@@ -7,6 +7,7 @@ import {
   buildContextForTest,
   getContextCacheForTest,
   clearContextCache,
+  getSubagentPreamble,
 } from "../handlers/context-loader.js";
 
 // Create a mock PAI directory structure for tests
@@ -264,5 +265,45 @@ describe("WISDOM context loading", () => {
     }
 
     cleanupDir(mockPAIDir);
+  });
+});
+
+describe("subagent preamble", () => {
+  test("getSubagentPreamble returns a non-empty string", () => {
+    const preamble = getSubagentPreamble();
+    expect(typeof preamble).toBe("string");
+    expect(preamble.length).toBeGreaterThan(0);
+  });
+
+  test("preamble states agent is a subagent", () => {
+    const preamble = getSubagentPreamble();
+    expect(preamble).toContain("subagent");
+  });
+
+  test("preamble prohibits Task tool usage", () => {
+    const preamble = getSubagentPreamble();
+    expect(preamble).toContain("DO NOT use the Task tool");
+  });
+
+  test("preamble allows Skill tool usage", () => {
+    const preamble = getSubagentPreamble();
+    expect(preamble).toContain("Use the Skill tool");
+    expect(preamble).not.toContain("DO NOT use the Skill tool");
+  });
+
+  test("preamble prohibits voice curl execution", () => {
+    const preamble = getSubagentPreamble();
+    expect(preamble).toContain("voice curl");
+  });
+
+  test("preamble instructs direct work with available tools including Skill", () => {
+    const preamble = getSubagentPreamble();
+    expect(preamble).toContain("Read");
+    expect(preamble).toContain("Write");
+    expect(preamble).toContain("Edit");
+    expect(preamble).toContain("Bash");
+    expect(preamble).toContain("Grep");
+    expect(preamble).toContain("Glob");
+    expect(preamble).toContain("Skill");
   });
 });
