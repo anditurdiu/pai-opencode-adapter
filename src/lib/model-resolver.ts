@@ -46,6 +46,7 @@ export interface FallbackSuggestion {
 	errorType: ProviderErrorType;
 	suggestedModel: string | null;
 	role: ModelRole | null;
+	subagentType: string | null;
 	timestamp: number;
 }
 
@@ -69,6 +70,7 @@ export function setFallbackSuggestion(
 	failedModel: string,
 	errorType: ProviderErrorType,
 	role?: ModelRole,
+	subagentType?: string,
 ): void {
 	const resolvedRole = role ?? identifyRoleFromModel(failedModel);
 	const nextModel = resolvedRole
@@ -80,13 +82,15 @@ export function setFallbackSuggestion(
 		errorType,
 		suggestedModel: nextModel,
 		role: resolvedRole,
+		subagentType: subagentType ?? null,
 		timestamp: Date.now(),
 	};
 
 	fallbackState.set(sessionId, suggestion);
 	fileLog(
 		`[model-resolver] Fallback set for session=${sessionId}: ` +
-		`${failedModel} (${errorType}) → ${nextModel ?? "chain exhausted"}`,
+		`${failedModel} (${errorType}) → ${nextModel ?? "chain exhausted"}` +
+		(subagentType ? ` [subagent: ${subagentType}]` : ""),
 		"info",
 	);
 }
@@ -317,24 +321,114 @@ export function getModelRoutingContext(): string {
 }
 
 /**
- * Format a fallback suggestion as a system-reminder block.
+ * Format a fallback suggestion as an actionable system-reminder block.
+ *
+ * The reminder tells the LLM exactly what to do — not just what happened.
+ * Since OpenCode's Task tool uses `subagent_type` to select agents (and
+ * each agent has a fixed model), we guide the LLM to pick an alternative
+ * agent type that uses a different provider/model.
  */
 export function formatFallbackReminder(suggestion: FallbackSuggestion): string {
 	const lines: string[] = [];
 
 	lines.push("<system-reminder>");
-	lines.push(`The model "${suggestion.failedModel}" encountered an error: ${suggestion.errorType}.`);
+	lines.push(`## Provider Error — Automatic Fallback Required`);
+	lines.push("");
+	lines.push(`A Task call failed with: **${suggestion.errorType}**`);
+	if (suggestion.failedModel) {
+		lines.push(`Failed model: \`${suggestion.failedModel}\``);
+	}
+	if (suggestion.subagentType) {
+		lines.push(`Failed subagent_type: \`${suggestion.subagentType}\``);
+	}
+	lines.push("");
 
-	if (suggestion.suggestedModel) {
-		lines.push(
-			`Suggested fallback: use "${suggestion.suggestedModel}" instead` +
-			(suggestion.role ? ` for the "${suggestion.role}" role.` : "."),
-		);
+	// Build actionable guidance based on available info
+	const altAgentTypes = getAlternativeAgentTypes(suggestion.subagentType ?? "", suggestion.role);
+
+	if (altAgentTypes.length > 0) {
+		lines.push("### Action Required");
+		lines.push(`Retry the failed task using a different \`subagent_type\`. These alternatives use different models/providers:`);
+		for (const alt of altAgentTypes) {
+			lines.push(`- \`subagent_type: "${alt.type}"\` → uses \`${alt.model}\``);
+		}
+		lines.push("");
+		lines.push("Re-issue the same Task call with the alternative subagent_type above. Keep the same prompt/description.");
+	} else if (suggestion.suggestedModel) {
+		lines.push(`Suggested fallback model: \`${suggestion.suggestedModel}\``);
+		lines.push("Note: You cannot override the model directly. Try a different subagent_type or simplify the task.");
 	} else {
-		lines.push("No fallback models configured for this role. Consider using a different provider.");
+		lines.push("No fallback agents available. Perform the work directly yourself without delegating.");
 	}
 
 	lines.push("</system-reminder>");
 
 	return lines.join("\n");
+}
+
+/**
+ * Get alternative agent types that use different models/providers than
+ * the one that failed. Returns up to 2 alternatives sorted by capability match.
+ */
+function getAlternativeAgentTypes(
+	failedType: string,
+	failedRole: ModelRole | null,
+): Array<{ type: string; model: string }> {
+	const config = getModelConfig();
+	const agents = config.models.agents;
+	if (!agents) return [];
+
+	// Map subagent_type names to their roles and models
+	const agentTypeToRole: Record<string, { role: ModelRole; model: string }> = {};
+	const roleToType: Record<string, string> = {
+		intern: "intern",
+		architect: "architect",
+		engineer: "engineer",
+		explorer: "explorer",
+		reviewer: "thinker", // thinker agent uses reviewer role
+	};
+
+	for (const [role, model] of Object.entries(agents)) {
+		if (model) {
+			const agentType = roleToType[role] ?? role;
+			agentTypeToRole[agentType] = { role: role as ModelRole, model };
+		}
+	}
+
+	// Also include "general" and "explore" as aliases for known types
+	if (agents.explorer) {
+		agentTypeToRole["explore"] = { role: "explorer", model: agents.explorer };
+	}
+	if (agents.engineer) {
+		agentTypeToRole["general"] = { role: "engineer", model: agents.engineer };
+	}
+
+	// Find the failed model to exclude agents using the same model
+	const failedInfo = agentTypeToRole[failedType];
+	const failedModel = failedInfo?.model ?? "";
+
+	// Capability similarity heuristic: some types are more interchangeable
+	const similarTypes: Record<string, string[]> = {
+		explorer: ["research", "general", "intern"],
+		explore: ["research", "general", "intern"],
+		research: ["explorer", "general", "thinker"],
+		engineer: ["architect", "general"],
+		architect: ["engineer", "thinker"],
+		thinker: ["architect", "research"],
+		intern: ["explorer", "general"],
+		general: ["engineer", "explorer"],
+	};
+
+	const preferred = similarTypes[failedType] ?? Object.keys(agentTypeToRole);
+	const alternatives: Array<{ type: string; model: string }> = [];
+
+	for (const altType of preferred) {
+		const alt = agentTypeToRole[altType];
+		if (alt && altType !== failedType && alt.model !== failedModel) {
+			alternatives.push({ type: altType, model: alt.model });
+		}
+		if (alternatives.length >= 2) break;
+	}
+
+	return alternatives;
 }

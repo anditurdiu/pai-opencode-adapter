@@ -1,7 +1,7 @@
 ---
 description: Fast research agent for investigating topics, gathering information, analyzing codebases, and extracting insights. Uses web search, documentation retrieval, and code analysis.
 mode: subagent
-model: github-copilot/gemini-3-pro-preview
+model: zai-coding-plan/glm-4.7
 color: "#A855F7"
 temperature: 0.2
 permission:
@@ -19,7 +19,10 @@ permission:
     "git branch*": allow
     "git rev-parse*": allow
     "git -C *": allow
+  task: deny
+  skill: allow
   webfetch: allow
+  question: deny
   external_directory:
     "~/.claude/**": allow
     "~/.config/opencode/**": allow

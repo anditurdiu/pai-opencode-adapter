@@ -1,9 +1,19 @@
-import { describe, it, expect, beforeAll, afterAll, afterEach } from "bun:test";
+import { describe, it, expect, beforeAll, afterAll, afterEach, beforeEach } from "bun:test";
 import PaiPlugin, {
   healthCheck,
   _subagentSessionsForTest,
   _pendingSubagentSpawnsForTest,
+  _subagentTrackingForTest,
   _SPAWN_TIMEOUT_MS_FOR_TEST,
+  _STALL_TIMEOUT_MS_FOR_TEST,
+  _getStalledSubagentWarningsForTest,
+  _loopDetectionStateForTest,
+  _LOOP_WINDOW_SIZE_FOR_TEST,
+  _LOOP_REPEAT_THRESHOLD_FOR_TEST,
+  _LOOP_CHUNK_MIN_LENGTH_FOR_TEST,
+  _recordReasoningChunkForTest,
+  _getLoopingSubagentWarningsForTest,
+  _hashReasoningChunkForTest,
 } from "../plugin/pai-unified.js";
 
 // The plugin is now a function — call it once to get the hooks object
@@ -580,7 +590,7 @@ describe("Task-call timing registry — spawn expiry", () => {
   it("expired pending spawn is NOT matched to session.created", async () => {
     // Manually inject a spawn entry that is already past the 30s timeout
     const expiredTimestamp = Date.now() - (_SPAWN_TIMEOUT_MS_FOR_TEST + 1000);
-    _pendingSubagentSpawnsForTest.set("primary-expired-test", [{ timestamp: expiredTimestamp }]);
+    _pendingSubagentSpawnsForTest.set("primary-expired-test", [{ timestamp: expiredTimestamp, subagentType: "engineer", description: "expired test" }]);
 
     await eventFn()({
       event: {
@@ -596,7 +606,7 @@ describe("Task-call timing registry — spawn expiry", () => {
   it("non-expired pending spawn IS matched to session.created", async () => {
     // Manually inject a spawn entry that is within the timeout window (1s ago)
     const recentTimestamp = Date.now() - 1000;
-    _pendingSubagentSpawnsForTest.set("primary-fresh-test", [{ timestamp: recentTimestamp }]);
+    _pendingSubagentSpawnsForTest.set("primary-fresh-test", [{ timestamp: recentTimestamp, subagentType: "engineer", description: "fresh test" }]);
 
     await eventFn()({
       event: {
@@ -607,5 +617,937 @@ describe("Task-call timing registry — spawn expiry", () => {
 
     // The fresh entry SHOULD have caused the new session to be registered as a subagent
     expect(_subagentSessionsForTest.has("session-after-fresh")).toBe(true);
+  });
+});
+
+// ── Enhanced Error Detection Tests ──────────────────────────
+
+describe("enhanced error detection — provider errors in Task output body", () => {
+  const toolAfterFn = () => hooks["tool.execute.after"] as (i: unknown, o: unknown) => Promise<void>;
+
+  it("does not throw when Task output body contains a rate limit error", async () => {
+    await expect(
+      toolAfterFn()(
+        {
+          tool: "Task",
+          sessionID: "test-error-detect-1",
+          args: { subagent_type: "explorer", description: "Research topic" },
+        },
+        { result: "Error: 429 Too many requests - rate limit exceeded for model" },
+      ),
+    ).resolves.toBeUndefined();
+  });
+
+  it("does not throw when Task output body contains an overloaded error", async () => {
+    await expect(
+      toolAfterFn()(
+        {
+          tool: "Task",
+          sessionID: "test-error-detect-2",
+          args: { subagent_type: "engineer", description: "Build feature" },
+        },
+        { error: "server overloaded, please retry later" },
+      ),
+    ).resolves.toBeUndefined();
+  });
+
+  it("does not throw when Task output body contains model not found", async () => {
+    await expect(
+      toolAfterFn()(
+        {
+          tool: "task",
+          sessionID: "test-error-detect-3",
+          args: { subagent_type: "intern" },
+        },
+        { message: "model not found: github-copilot/nonexistent-model" },
+      ),
+    ).resolves.toBeUndefined();
+  });
+
+  it("does not throw when Task output body contains provider unavailable", async () => {
+    await expect(
+      toolAfterFn()(
+        {
+          tool: "Task",
+          sessionID: "test-error-detect-4",
+          args: { subagent_type: "architect" },
+        },
+        { status: 503, body: "service unavailable" },
+      ),
+    ).resolves.toBeUndefined();
+  });
+
+  it("does not throw when output has no errors (normal Task completion)", async () => {
+    await expect(
+      toolAfterFn()(
+        {
+          tool: "Task",
+          sessionID: "test-error-detect-5",
+          args: { subagent_type: "explorer", description: "Explore codebase" },
+        },
+        { result: "Successfully explored the codebase and found 12 relevant files." },
+      ),
+    ).resolves.toBeUndefined();
+  });
+
+  it("does not throw for non-Task tools even with error-like output", async () => {
+    await expect(
+      toolAfterFn()(
+        {
+          tool: "bash",
+          sessionID: "test-error-detect-6",
+          args: { command: "curl http://localhost" },
+        },
+        { error: "connection refused" },
+      ),
+    ).resolves.toBeUndefined();
+  });
+});
+
+// ── Subagent Activity Tracking Tests ────────────────────────
+
+describe("subagent activity tracking — lastActivityAt updates", () => {
+  const toolBeforeFn = () => hooks["tool.execute.before"] as (i: unknown, o: unknown) => Promise<void>;
+  const toolAfterFn = () => hooks["tool.execute.after"] as (i: unknown, o: unknown) => Promise<void>;
+  const eventFn = () => hooks["event"] as (i: unknown) => Promise<void>;
+  const primarySid = "primary-activity-test";
+  const subSid = "sub-activity-test-1";
+
+  beforeEach(async () => {
+    // Set up: spawn a subagent via the timing registry
+    await toolBeforeFn()(
+      { tool: "Task", sessionID: primarySid, args: { subagent_type: "engineer", description: "Build" } },
+      {},
+    );
+    await eventFn()({
+      event: { type: "session.created", properties: { info: { id: subSid } } },
+    });
+  });
+
+  afterEach(() => {
+    _subagentSessionsForTest.delete(subSid);
+    _subagentTrackingForTest.delete(subSid);
+    _pendingSubagentSpawnsForTest.delete(primarySid);
+  });
+
+  it("registers SubagentTrackingInfo on session.created for spawned subagent", () => {
+    const tracking = _subagentTrackingForTest.get(subSid);
+    expect(tracking).toBeDefined();
+    expect(tracking!.parentSessionId).toBe(primarySid);
+    expect(tracking!.subagentType).toBe("engineer");
+    expect(tracking!.description).toBe("Build");
+    expect(tracking!.stallWarned).toBe(false);
+  });
+
+  it("sets spawnedAt and lastActivityAt to approximately now on creation", () => {
+    const tracking = _subagentTrackingForTest.get(subSid);
+    expect(tracking).toBeDefined();
+    const now = Date.now();
+    // Should be within 5 seconds of now
+    expect(Math.abs(tracking!.spawnedAt - now)).toBeLessThan(5000);
+    expect(Math.abs(tracking!.lastActivityAt - now)).toBeLessThan(5000);
+  });
+
+  it("updates lastActivityAt on tool.execute.after for subagent session", async () => {
+    const trackingBefore = _subagentTrackingForTest.get(subSid);
+    expect(trackingBefore).toBeDefined();
+    const initialActivity = trackingBefore!.lastActivityAt;
+
+    // Simulate a small delay then tool execution
+    await new Promise((r) => setTimeout(r, 10));
+
+    await toolAfterFn()(
+      { tool: "Read", sessionID: subSid, args: { filePath: "/tmp/test" } },
+      { content: "file contents" },
+    );
+
+    const trackingAfter = _subagentTrackingForTest.get(subSid);
+    expect(trackingAfter!.lastActivityAt).toBeGreaterThanOrEqual(initialActivity);
+  });
+
+  it("does NOT create tracking for primary (non-subagent) sessions on tool.execute.after", async () => {
+    await toolAfterFn()(
+      { tool: "Read", sessionID: "primary-no-tracking", args: {} },
+      {},
+    );
+    expect(_subagentTrackingForTest.has("primary-no-tracking")).toBe(false);
+  });
+});
+
+// ── Stall Detection Tests ───────────────────────────────────
+
+describe("stall detection — getStalledSubagentWarnings", () => {
+  const primarySid = "primary-stall-test";
+
+  afterEach(() => {
+    // Clean up all stall test sessions
+    for (const [sid] of _subagentTrackingForTest.entries()) {
+      if (sid.startsWith("sub-stall-")) {
+        _subagentTrackingForTest.delete(sid);
+        _subagentSessionsForTest.delete(sid);
+      }
+    }
+  });
+
+  it("returns null when no subagents are tracked for the primary session", () => {
+    const result = _getStalledSubagentWarningsForTest("nonexistent-primary");
+    expect(result).toBeNull();
+  });
+
+  it("returns null when subagent is still active (within timeout)", () => {
+    _subagentTrackingForTest.set("sub-stall-active", {
+      parentSessionId: primarySid,
+      subagentType: "engineer",
+      description: "Build feature",
+      spawnedAt: Date.now(),
+      lastActivityAt: Date.now(), // Active right now
+      stallWarned: false,
+    });
+
+    const result = _getStalledSubagentWarningsForTest(primarySid);
+    expect(result).toBeNull();
+  });
+
+  it("returns warning when subagent is inactive beyond STALL_TIMEOUT_MS", () => {
+    const stalledTime = Date.now() - (_STALL_TIMEOUT_MS_FOR_TEST + 1000);
+    _subagentTrackingForTest.set("sub-stall-inactive", {
+      parentSessionId: primarySid,
+      subagentType: "explorer",
+      description: "Explore codebase structure",
+      spawnedAt: stalledTime - 10_000,
+      lastActivityAt: stalledTime,
+      stallWarned: false,
+    });
+
+    const result = _getStalledSubagentWarningsForTest(primarySid);
+    expect(result).not.toBeNull();
+    expect(result).toContain("Stalled Subagent Detected");
+    expect(result).toContain("explorer");
+    expect(result).toContain("Explore codebase structure");
+    expect(result).toContain("Action Required");
+    expect(result).toContain("Do NOT wait");
+  });
+
+  it("sets stallWarned to true after warning once", () => {
+    const stalledTime = Date.now() - (_STALL_TIMEOUT_MS_FOR_TEST + 1000);
+    _subagentTrackingForTest.set("sub-stall-warn-once", {
+      parentSessionId: primarySid,
+      subagentType: "intern",
+      description: "Simple task",
+      spawnedAt: stalledTime - 10_000,
+      lastActivityAt: stalledTime,
+      stallWarned: false,
+    });
+
+    // First call should warn
+    const first = _getStalledSubagentWarningsForTest(primarySid);
+    expect(first).not.toBeNull();
+
+    // Second call should NOT warn again
+    const second = _getStalledSubagentWarningsForTest(primarySid);
+    expect(second).toBeNull();
+
+    // Verify stallWarned is set
+    const tracking = _subagentTrackingForTest.get("sub-stall-warn-once");
+    expect(tracking!.stallWarned).toBe(true);
+
+    // Clean up
+    _subagentTrackingForTest.delete("sub-stall-warn-once");
+  });
+
+  it("does not warn about subagents belonging to a different primary session", () => {
+    const stalledTime = Date.now() - (_STALL_TIMEOUT_MS_FOR_TEST + 1000);
+    _subagentTrackingForTest.set("sub-stall-other-parent", {
+      parentSessionId: "some-other-primary",
+      subagentType: "thinker",
+      description: "Deep analysis",
+      spawnedAt: stalledTime - 10_000,
+      lastActivityAt: stalledTime,
+      stallWarned: false,
+    });
+
+    const result = _getStalledSubagentWarningsForTest(primarySid);
+    expect(result).toBeNull();
+
+    // Clean up
+    _subagentTrackingForTest.delete("sub-stall-other-parent");
+  });
+
+  it("includes warnings for multiple stalled subagents", () => {
+    const stalledTime = Date.now() - (_STALL_TIMEOUT_MS_FOR_TEST + 1000);
+
+    _subagentTrackingForTest.set("sub-stall-multi-1", {
+      parentSessionId: primarySid,
+      subagentType: "engineer",
+      description: "Build component A",
+      spawnedAt: stalledTime - 10_000,
+      lastActivityAt: stalledTime,
+      stallWarned: false,
+    });
+    _subagentTrackingForTest.set("sub-stall-multi-2", {
+      parentSessionId: primarySid,
+      subagentType: "explorer",
+      description: "Search for patterns",
+      spawnedAt: stalledTime - 10_000,
+      lastActivityAt: stalledTime,
+      stallWarned: false,
+    });
+
+    const result = _getStalledSubagentWarningsForTest(primarySid);
+    expect(result).not.toBeNull();
+    expect(result).toContain("engineer");
+    expect(result).toContain("explorer");
+    expect(result).toContain("Build component A");
+    expect(result).toContain("Search for patterns");
+
+    // Clean up
+    _subagentTrackingForTest.delete("sub-stall-multi-1");
+    _subagentTrackingForTest.delete("sub-stall-multi-2");
+  });
+});
+
+// ── Stall Warning Injection in system.transform ─────────────
+
+describe("stall warning injection in experimental.chat.system.transform", () => {
+  const systemTransformFn = () =>
+    hooks["experimental.chat.system.transform"] as (i: unknown, o: unknown) => Promise<void>;
+  const primarySid = "primary-stall-inject-test";
+
+  afterEach(() => {
+    for (const [sid] of _subagentTrackingForTest.entries()) {
+      if (sid.startsWith("sub-stall-inject-")) {
+        _subagentTrackingForTest.delete(sid);
+        _subagentSessionsForTest.delete(sid);
+      }
+    }
+  });
+
+  it("injects stall warning into system prompt for primary session with stalled subagent", async () => {
+    const stalledTime = Date.now() - (_STALL_TIMEOUT_MS_FOR_TEST + 1000);
+    _subagentTrackingForTest.set("sub-stall-inject-1", {
+      parentSessionId: primarySid,
+      subagentType: "architect",
+      description: "Design system",
+      spawnedAt: stalledTime - 10_000,
+      lastActivityAt: stalledTime,
+      stallWarned: false,
+    });
+
+    const output = { system: [] as string[] };
+    await systemTransformFn()({ sessionID: primarySid, model: "test-model" }, output);
+
+    const combined = output.system.join("\n");
+    expect(combined).toContain("Stalled Subagent Detected");
+    expect(combined).toContain("architect");
+
+    // Clean up
+    _subagentTrackingForTest.delete("sub-stall-inject-1");
+  });
+
+  it("does NOT inject stall warning for subagent sessions (only primary)", async () => {
+    const subSid = "sub-stall-inject-2";
+    _subagentSessionsForTest.add(subSid);
+    const stalledTime = Date.now() - (_STALL_TIMEOUT_MS_FOR_TEST + 1000);
+    _subagentTrackingForTest.set("sub-stall-inject-nested", {
+      parentSessionId: subSid,
+      subagentType: "intern",
+      description: "Nested task",
+      spawnedAt: stalledTime - 10_000,
+      lastActivityAt: stalledTime,
+      stallWarned: false,
+    });
+
+    const output = { system: [] as string[] };
+    await systemTransformFn()({ sessionID: subSid, model: "test-model" }, output);
+
+    const combined = output.system.join("\n");
+    // Stall warnings should NOT appear for subagent sessions
+    expect(combined).not.toContain("Stalled Subagent Detected");
+
+    // Clean up
+    _subagentSessionsForTest.delete(subSid);
+    _subagentTrackingForTest.delete("sub-stall-inject-nested");
+  });
+
+  it("does NOT inject stall warning when all subagents are active", async () => {
+    _subagentTrackingForTest.set("sub-stall-inject-3", {
+      parentSessionId: primarySid,
+      subagentType: "engineer",
+      description: "Active work",
+      spawnedAt: Date.now(),
+      lastActivityAt: Date.now(), // Active right now
+      stallWarned: false,
+    });
+
+    const output = { system: [] as string[] };
+    await systemTransformFn()({ sessionID: primarySid, model: "test-model" }, output);
+
+    const combined = output.system.join("\n");
+    expect(combined).not.toContain("Stalled Subagent Detected");
+
+    // Clean up
+    _subagentTrackingForTest.delete("sub-stall-inject-3");
+  });
+});
+
+// ── Cleanup on session.end Tests ────────────────────────────
+
+describe("session.end cleanup — subagent tracking state", () => {
+  const eventFn = () => hooks["event"] as (i: unknown) => Promise<void>;
+  const toolBeforeFn = () => hooks["tool.execute.before"] as (i: unknown, o: unknown) => Promise<void>;
+
+  it("cleans up subagentTracking on session.end", async () => {
+    const sid = "test-cleanup-tracking";
+    // Manually add tracking info
+    _subagentTrackingForTest.set(sid, {
+      parentSessionId: "parent-x",
+      subagentType: "engineer",
+      description: "test",
+      spawnedAt: Date.now(),
+      lastActivityAt: Date.now(),
+      stallWarned: false,
+    });
+    _subagentSessionsForTest.add(sid);
+
+    // Trigger session.end
+    await eventFn()({
+      event: { type: "session.end", properties: { sessionID: sid } },
+    });
+
+    expect(_subagentTrackingForTest.has(sid)).toBe(false);
+    expect(_subagentSessionsForTest.has(sid)).toBe(false);
+  });
+
+  it("cleans up pendingSubagentSpawns on session.end", async () => {
+    const sid = "test-cleanup-spawns";
+    _pendingSubagentSpawnsForTest.set(sid, [
+      { timestamp: Date.now(), subagentType: "engineer", description: "test" },
+    ]);
+
+    await eventFn()({
+      event: { type: "session.end", properties: { sessionID: sid } },
+    });
+
+    expect(_pendingSubagentSpawnsForTest.has(sid)).toBe(false);
+  });
+});
+
+// ── Subagent Tracking Registration on session.created ───────
+
+describe("subagent tracking registration on session.created", () => {
+  const toolBeforeFn = () => hooks["tool.execute.before"] as (i: unknown, o: unknown) => Promise<void>;
+  const eventFn = () => hooks["event"] as (i: unknown) => Promise<void>;
+  const primarySid = "primary-tracking-reg-test";
+  const subSid = "sub-tracking-reg-test";
+
+  afterEach(() => {
+    _subagentSessionsForTest.delete(subSid);
+    _subagentTrackingForTest.delete(subSid);
+    _pendingSubagentSpawnsForTest.delete(primarySid);
+  });
+
+  it("captures subagentType from Task args in tracking info", async () => {
+    await toolBeforeFn()(
+      {
+        tool: "Task",
+        sessionID: primarySid,
+        args: { subagent_type: "architect", description: "Design the API" },
+      },
+      {},
+    );
+    await eventFn()({
+      event: { type: "session.created", properties: { info: { id: subSid } } },
+    });
+
+    const tracking = _subagentTrackingForTest.get(subSid);
+    expect(tracking).toBeDefined();
+    expect(tracking!.subagentType).toBe("architect");
+    expect(tracking!.description).toBe("Design the API");
+    expect(tracking!.parentSessionId).toBe(primarySid);
+  });
+
+  it("captures description truncated to 80 chars in tracking info", async () => {
+    const longDesc = "A".repeat(120);
+    await toolBeforeFn()(
+      {
+        tool: "Task",
+        sessionID: primarySid,
+        args: { subagent_type: "explorer", description: longDesc },
+      },
+      {},
+    );
+    await eventFn()({
+      event: { type: "session.created", properties: { info: { id: subSid } } },
+    });
+
+    const tracking = _subagentTrackingForTest.get(subSid);
+    expect(tracking).toBeDefined();
+    expect(tracking!.description.length).toBeLessThanOrEqual(80);
+  });
+});
+
+// ── Reasoning Loop Detection Tests ──────────────────────────
+
+describe("hashReasoningChunk — normalization", () => {
+  it("produces identical hashes for text differing only in whitespace", () => {
+    const a = _hashReasoningChunkForTest("Let me think about this problem carefully and methodically");
+    const b = _hashReasoningChunkForTest("Let me  think  about  this  problem  carefully  and  methodically");
+    expect(a).toBe(b);
+  });
+
+  it("produces identical hashes for text differing only in case", () => {
+    const a = _hashReasoningChunkForTest("Let me think about this problem carefully and methodically");
+    const b = _hashReasoningChunkForTest("LET ME THINK ABOUT THIS PROBLEM CAREFULLY AND METHODICALLY");
+    expect(a).toBe(b);
+  });
+
+  it("produces identical hashes for text with leading/trailing whitespace", () => {
+    const a = _hashReasoningChunkForTest("Let me think about this problem carefully and methodically");
+    const b = _hashReasoningChunkForTest("  Let me think about this problem carefully and methodically  ");
+    expect(a).toBe(b);
+  });
+
+  it("produces different hashes for meaningfully different text", () => {
+    const a = _hashReasoningChunkForTest("Let me think about this problem carefully and methodically");
+    const b = _hashReasoningChunkForTest("I should explore the codebase to find the relevant files first");
+    expect(a).not.toBe(b);
+  });
+
+  it("returns a 12-character hex string", () => {
+    const hash = _hashReasoningChunkForTest("Let me think about this problem carefully and methodically");
+    expect(hash.length).toBe(12);
+    expect(/^[0-9a-f]{12}$/.test(hash)).toBe(true);
+  });
+});
+
+describe("recordReasoningChunk — loop detection logic", () => {
+  const testSid = "sub-loop-record-test";
+
+  afterEach(() => {
+    _loopDetectionStateForTest.delete(testSid);
+  });
+
+  it("ignores chunks shorter than LOOP_CHUNK_MIN_LENGTH", () => {
+    const result = _recordReasoningChunkForTest(testSid, "short");
+    expect(result).toBe(false);
+    expect(_loopDetectionStateForTest.has(testSid)).toBe(false);
+  });
+
+  it("creates state on first chunk for a new session", () => {
+    const chunk = "A".repeat(_LOOP_CHUNK_MIN_LENGTH_FOR_TEST + 10);
+    _recordReasoningChunkForTest(testSid, chunk);
+    expect(_loopDetectionStateForTest.has(testSid)).toBe(true);
+    expect(_loopDetectionStateForTest.get(testSid)!.hashes.length).toBe(1);
+  });
+
+  it("does NOT detect a loop with only 1-2 identical chunks", () => {
+    const chunk = "Let me think about this problem carefully and methodically step by step";
+    // Only 2 repetitions (below threshold of 3)
+    const r1 = _recordReasoningChunkForTest(testSid, chunk);
+    const r2 = _recordReasoningChunkForTest(testSid, chunk);
+    expect(r1).toBe(false);
+    expect(r2).toBe(false);
+    expect(_loopDetectionStateForTest.get(testSid)!.loopDetected).toBe(false);
+  });
+
+  it("detects a loop when LOOP_REPEAT_THRESHOLD identical chunks are recorded", () => {
+    const chunk = "Let me think about this problem carefully and methodically step by step";
+    let detected = false;
+    for (let i = 0; i < _LOOP_REPEAT_THRESHOLD_FOR_TEST; i++) {
+      if (_recordReasoningChunkForTest(testSid, chunk)) detected = true;
+    }
+    expect(detected).toBe(true);
+    expect(_loopDetectionStateForTest.get(testSid)!.loopDetected).toBe(true);
+  });
+
+  it("returns false after loop is already detected (no repeated true)", () => {
+    const chunk = "Let me think about this problem carefully and methodically step by step";
+    // Trigger detection
+    for (let i = 0; i < _LOOP_REPEAT_THRESHOLD_FOR_TEST; i++) {
+      _recordReasoningChunkForTest(testSid, chunk);
+    }
+    // Additional calls should return false
+    const extra = _recordReasoningChunkForTest(testSid, chunk);
+    expect(extra).toBe(false);
+  });
+
+  it("does NOT detect a loop when chunks are all different", () => {
+    for (let i = 0; i < _LOOP_WINDOW_SIZE_FOR_TEST; i++) {
+      const chunk = `Thinking about aspect number ${i} of the problem in great detail and depth`;
+      const result = _recordReasoningChunkForTest(testSid, chunk);
+      expect(result).toBe(false);
+    }
+    expect(_loopDetectionStateForTest.get(testSid)!.loopDetected).toBe(false);
+  });
+
+  it("maintains rolling window — old hashes are evicted", () => {
+    // Fill window with unique chunks
+    for (let i = 0; i < _LOOP_WINDOW_SIZE_FOR_TEST; i++) {
+      _recordReasoningChunkForTest(
+        testSid,
+        `Unique reasoning chunk number ${i} with enough text to be above minimum`,
+      );
+    }
+    const state = _loopDetectionStateForTest.get(testSid)!;
+    expect(state.hashes.length).toBeLessThanOrEqual(_LOOP_WINDOW_SIZE_FOR_TEST);
+  });
+});
+
+describe("getLoopingSubagentWarnings — warning generation", () => {
+  const primarySid = "primary-loop-warn-test";
+  const subSid = "sub-loop-warn-1";
+
+  afterEach(() => {
+    _subagentTrackingForTest.delete(subSid);
+    _subagentSessionsForTest.delete(subSid);
+    _loopDetectionStateForTest.delete(subSid);
+  });
+
+  it("returns null when no subagents have loops detected", () => {
+    _subagentTrackingForTest.set(subSid, {
+      parentSessionId: primarySid,
+      subagentType: "engineer",
+      description: "Build feature",
+      spawnedAt: Date.now(),
+      lastActivityAt: Date.now(),
+      stallWarned: false,
+    });
+    // No loop detection state at all
+    const result = _getLoopingSubagentWarningsForTest(primarySid);
+    expect(result).toBeNull();
+  });
+
+  it("returns null when loop state exists but loopDetected is false", () => {
+    _subagentTrackingForTest.set(subSid, {
+      parentSessionId: primarySid,
+      subagentType: "engineer",
+      description: "Build feature",
+      spawnedAt: Date.now(),
+      lastActivityAt: Date.now(),
+      stallWarned: false,
+    });
+    _loopDetectionStateForTest.set(subSid, {
+      hashes: ["abc123abc123"],
+      loopDetected: false,
+      loopWarned: false,
+    });
+    const result = _getLoopingSubagentWarningsForTest(primarySid);
+    expect(result).toBeNull();
+  });
+
+  it("returns warning when loop is detected and not yet warned", () => {
+    _subagentTrackingForTest.set(subSid, {
+      parentSessionId: primarySid,
+      subagentType: "thinker",
+      description: "Analyze architecture",
+      spawnedAt: Date.now(),
+      lastActivityAt: Date.now(),
+      stallWarned: false,
+    });
+    _loopDetectionStateForTest.set(subSid, {
+      hashes: ["aaa", "aaa", "aaa"],
+      loopDetected: true,
+      loopWarned: false,
+    });
+
+    const result = _getLoopingSubagentWarningsForTest(primarySid);
+    expect(result).not.toBeNull();
+    expect(result).toContain("Reasoning Loop Detected");
+    expect(result).toContain("thinker");
+    expect(result).toContain("Analyze architecture");
+    expect(result).toContain("Action Required");
+    expect(result).toContain("Cancel the stalled subagent");
+  });
+
+  it("sets loopWarned to true after warning once (warn-once)", () => {
+    _subagentTrackingForTest.set(subSid, {
+      parentSessionId: primarySid,
+      subagentType: "explorer",
+      description: "Search codebase",
+      spawnedAt: Date.now(),
+      lastActivityAt: Date.now(),
+      stallWarned: false,
+    });
+    _loopDetectionStateForTest.set(subSid, {
+      hashes: ["bbb", "bbb", "bbb"],
+      loopDetected: true,
+      loopWarned: false,
+    });
+
+    // First call should warn
+    const first = _getLoopingSubagentWarningsForTest(primarySid);
+    expect(first).not.toBeNull();
+
+    // Second call should NOT warn again
+    const second = _getLoopingSubagentWarningsForTest(primarySid);
+    expect(second).toBeNull();
+
+    expect(_loopDetectionStateForTest.get(subSid)!.loopWarned).toBe(true);
+  });
+
+  it("does not warn about subagents belonging to a different primary", () => {
+    _subagentTrackingForTest.set(subSid, {
+      parentSessionId: "some-other-primary",
+      subagentType: "intern",
+      description: "Other task",
+      spawnedAt: Date.now(),
+      lastActivityAt: Date.now(),
+      stallWarned: false,
+    });
+    _loopDetectionStateForTest.set(subSid, {
+      hashes: ["ccc", "ccc", "ccc"],
+      loopDetected: true,
+      loopWarned: false,
+    });
+
+    const result = _getLoopingSubagentWarningsForTest(primarySid);
+    expect(result).toBeNull();
+  });
+});
+
+describe("loop warning injection in experimental.chat.system.transform", () => {
+  const systemTransformFn = () =>
+    hooks["experimental.chat.system.transform"] as (i: unknown, o: unknown) => Promise<void>;
+  const primarySid = "primary-loop-inject-test";
+  const subSid = "sub-loop-inject-1";
+
+  afterEach(() => {
+    _subagentTrackingForTest.delete(subSid);
+    _subagentSessionsForTest.delete(subSid);
+    _loopDetectionStateForTest.delete(subSid);
+  });
+
+  it("injects loop warning into system prompt for primary session", async () => {
+    _subagentTrackingForTest.set(subSid, {
+      parentSessionId: primarySid,
+      subagentType: "architect",
+      description: "Design API",
+      spawnedAt: Date.now(),
+      lastActivityAt: Date.now(),
+      stallWarned: false,
+    });
+    _loopDetectionStateForTest.set(subSid, {
+      hashes: ["ddd", "ddd", "ddd"],
+      loopDetected: true,
+      loopWarned: false,
+    });
+
+    const output = { system: [] as string[] };
+    await systemTransformFn()({ sessionID: primarySid, model: "test-model" }, output);
+
+    const combined = output.system.join("\n");
+    expect(combined).toContain("Reasoning Loop Detected");
+    expect(combined).toContain("architect");
+  });
+
+  it("does NOT inject loop warning for subagent sessions", async () => {
+    _subagentSessionsForTest.add(subSid);
+    _subagentTrackingForTest.set("sub-nested-loop", {
+      parentSessionId: subSid,
+      subagentType: "intern",
+      description: "Nested task",
+      spawnedAt: Date.now(),
+      lastActivityAt: Date.now(),
+      stallWarned: false,
+    });
+    _loopDetectionStateForTest.set("sub-nested-loop", {
+      hashes: ["eee", "eee", "eee"],
+      loopDetected: true,
+      loopWarned: false,
+    });
+
+    const output = { system: [] as string[] };
+    await systemTransformFn()({ sessionID: subSid, model: "test-model" }, output);
+
+    const combined = output.system.join("\n");
+    expect(combined).not.toContain("Reasoning Loop Detected");
+
+    // Clean up
+    _subagentTrackingForTest.delete("sub-nested-loop");
+    _loopDetectionStateForTest.delete("sub-nested-loop");
+  });
+
+  it("does NOT inject loop warning when no loops detected", async () => {
+    _subagentTrackingForTest.set(subSid, {
+      parentSessionId: primarySid,
+      subagentType: "engineer",
+      description: "Active work",
+      spawnedAt: Date.now(),
+      lastActivityAt: Date.now(),
+      stallWarned: false,
+    });
+    // No loop detection state
+
+    const output = { system: [] as string[] };
+    await systemTransformFn()({ sessionID: primarySid, model: "test-model" }, output);
+
+    const combined = output.system.join("\n");
+    expect(combined).not.toContain("Reasoning Loop Detected");
+  });
+});
+
+describe("loop detection via message.part.updated event", () => {
+  const eventFn = () => hooks["event"] as (i: unknown) => Promise<void>;
+  const toolBeforeFn = () => hooks["tool.execute.before"] as (i: unknown, o: unknown) => Promise<void>;
+  const primarySid = "primary-loop-event-test";
+  const subSid = "sub-loop-event-1";
+
+  beforeEach(async () => {
+    // Set up: spawn a subagent via the timing registry
+    await toolBeforeFn()(
+      { tool: "Task", sessionID: primarySid, args: { subagent_type: "thinker", description: "Think deeply" } },
+      {},
+    );
+    await eventFn()({
+      event: { type: "session.created", properties: { info: { id: subSid } } },
+    });
+  });
+
+  afterEach(() => {
+    _subagentSessionsForTest.delete(subSid);
+    _subagentTrackingForTest.delete(subSid);
+    _loopDetectionStateForTest.delete(subSid);
+    _pendingSubagentSpawnsForTest.delete(primarySid);
+  });
+
+  it("processes message.part.updated with reasoning part for subagent session", async () => {
+    const reasoningText = "I need to think about this more carefully, considering all the angles of the problem";
+    await eventFn()({
+      event: {
+        type: "message.part.updated",
+        properties: {
+          part: {
+            id: "part-1",
+            sessionID: subSid,
+            messageID: "msg-1",
+            type: "reasoning",
+            text: reasoningText,
+            time: { start: Date.now() },
+          },
+        },
+      },
+    });
+
+    // Loop detection state should be created
+    expect(_loopDetectionStateForTest.has(subSid)).toBe(true);
+    expect(_loopDetectionStateForTest.get(subSid)!.hashes.length).toBe(1);
+  });
+
+  it("ignores message.part.updated for non-reasoning part types", async () => {
+    await eventFn()({
+      event: {
+        type: "message.part.updated",
+        properties: {
+          part: {
+            id: "part-2",
+            sessionID: subSid,
+            messageID: "msg-2",
+            type: "text",
+            text: "Some output text that is definitely long enough to pass the minimum length check",
+            time: { start: Date.now() },
+          },
+        },
+      },
+    });
+
+    // No loop detection state should be created for text parts
+    expect(_loopDetectionStateForTest.has(subSid)).toBe(false);
+  });
+
+  it("ignores message.part.updated for primary (non-subagent) sessions", async () => {
+    await eventFn()({
+      event: {
+        type: "message.part.updated",
+        properties: {
+          part: {
+            id: "part-3",
+            sessionID: primarySid,
+            messageID: "msg-3",
+            type: "reasoning",
+            text: "Primary session reasoning that is long enough to pass the minimum length check easily",
+            time: { start: Date.now() },
+          },
+        },
+      },
+    });
+
+    // No loop detection state for primary session
+    expect(_loopDetectionStateForTest.has(primarySid)).toBe(false);
+  });
+
+  it("detects loop after repeated identical reasoning in message.part.updated events", async () => {
+    const repeatedThought = "Let me reconsider this approach by going back to first principles and analyzing the requirements";
+
+    for (let i = 0; i < _LOOP_REPEAT_THRESHOLD_FOR_TEST; i++) {
+      await eventFn()({
+        event: {
+          type: "message.part.updated",
+          properties: {
+            part: {
+              id: `part-loop-${i}`,
+              sessionID: subSid,
+              messageID: `msg-loop-${i}`,
+              type: "reasoning",
+              text: repeatedThought,
+              time: { start: Date.now() },
+            },
+          },
+        },
+      });
+    }
+
+    expect(_loopDetectionStateForTest.get(subSid)!.loopDetected).toBe(true);
+  });
+
+  it("does not throw on malformed message.part.updated event", async () => {
+    await expect(
+      eventFn()({
+        event: {
+          type: "message.part.updated",
+          properties: {},
+        },
+      }),
+    ).resolves.toBeUndefined();
+  });
+
+  it("does not throw on message.part.updated with missing text", async () => {
+    await expect(
+      eventFn()({
+        event: {
+          type: "message.part.updated",
+          properties: {
+            part: {
+              id: "part-no-text",
+              sessionID: subSid,
+              messageID: "msg-no-text",
+              type: "reasoning",
+              // no text field
+              time: { start: Date.now() },
+            },
+          },
+        },
+      }),
+    ).resolves.toBeUndefined();
+  });
+});
+
+describe("session.end cleanup — loop detection state", () => {
+  const eventFn = () => hooks["event"] as (i: unknown) => Promise<void>;
+
+  it("cleans up loopDetectionState on session.end", async () => {
+    const sid = "test-cleanup-loop";
+    _loopDetectionStateForTest.set(sid, {
+      hashes: ["abc", "abc", "abc"],
+      loopDetected: true,
+      loopWarned: true,
+    });
+    _subagentSessionsForTest.add(sid);
+
+    await eventFn()({
+      event: { type: "session.end", properties: { sessionID: sid } },
+    });
+
+    expect(_loopDetectionStateForTest.has(sid)).toBe(false);
+    _subagentSessionsForTest.delete(sid);
   });
 });

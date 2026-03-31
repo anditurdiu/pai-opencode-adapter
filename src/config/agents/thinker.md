@@ -1,7 +1,7 @@
 ---
 description: Deep reasoning agent for analysis, architecture decisions, debugging complex issues, and evaluating tradeoffs. Excels at first-principles thinking and structured problem decomposition.
 mode: subagent
-model: github-copilot/claude-opus-4.6
+model: github-copilot/claude-sonnet-4.6
 color: "#EAB308"
 temperature: 0.1
 permission:
@@ -19,7 +19,10 @@ permission:
     "git branch*": allow
     "git rev-parse*": allow
     "git -C *": allow
+  task: deny
+  skill: allow
   webfetch: allow
+  question: deny
   external_directory:
     "~/.claude/**": allow
     "~/.config/opencode/**": allow

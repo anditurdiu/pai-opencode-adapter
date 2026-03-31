@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
@@ -115,6 +116,187 @@ function isSubagentSession(evt: Record<string, unknown>): boolean {
 // session.end.
 const subagentSessions = new Set<string>();
 
+// ── Sub-agent activity tracking ────────────────────────────────────
+// Tracks last activity per subagent session for stall detection.
+// When a subagent session has no activity for STALL_TIMEOUT_MS,
+// we inject a warning into the primary session's system prompt.
+const STALL_TIMEOUT_MS = 3 * 60 * 1000; // 3 minutes
+
+interface SubagentTrackingInfo {
+  parentSessionId: string;
+  subagentType: string;
+  description: string;
+  spawnedAt: number;
+  lastActivityAt: number;
+  stallWarned: boolean; // Only warn once per session
+}
+
+const subagentTracking = new Map<string, SubagentTrackingInfo>();
+
+/**
+ * Get stalled subagent warnings for a primary session.
+ * Returns system-reminder blocks for any subagents that have been
+ * inactive for longer than STALL_TIMEOUT_MS.
+ */
+function getStalledSubagentWarnings(primarySessionId: string): string | null {
+  const now = Date.now();
+  const warnings: string[] = [];
+
+  for (const [subSid, info] of subagentTracking.entries()) {
+    if (info.parentSessionId !== primarySessionId) continue;
+    if (info.stallWarned) continue;
+
+    const inactiveMs = now - info.lastActivityAt;
+    if (inactiveMs >= STALL_TIMEOUT_MS) {
+      info.stallWarned = true;
+      const inactiveMin = Math.floor(inactiveMs / 60_000);
+      warnings.push(
+        `- Subagent \`${info.subagentType}\` (session ${subSid.slice(0, 8)}) has been inactive for ${inactiveMin}+ minutes. ` +
+        `Task: "${info.description}". This likely indicates a provider stall or error.`
+      );
+      fileLog(
+        `[stall-detect] Subagent ${subSid.slice(0, 8)} stalled: type=${info.subagentType} inactive=${inactiveMin}min`,
+        "warn",
+      );
+    }
+  }
+
+  if (warnings.length === 0) return null;
+
+  const lines = [
+    "<system-reminder>",
+    "## Stalled Subagent Detected",
+    "",
+    "The following subagent(s) appear to be stalled (no activity for 3+ minutes):",
+    ...warnings,
+    "",
+    "### Action Required",
+    "The stalled subagent is likely stuck due to a provider error or timeout. You should:",
+    "1. **Do NOT wait** for the stalled subagent to complete — it will likely never return.",
+    "2. **Retry the task** using a different `subagent_type` that uses a different provider/model.",
+    "3. If no alternative agent is suitable, **perform the work directly yourself** without delegating.",
+    "</system-reminder>",
+  ];
+
+  return lines.join("\n");
+}
+
+// ── Sub-agent reasoning loop detection ─────────────────────────────
+// Detects when a subagent is stuck in a reasoning/thinking loop —
+// repeating the same thoughts over and over without making progress.
+// We hash chunks of reasoning text and check for repetition in a
+// rolling window. If enough hashes repeat, the subagent is looping.
+const LOOP_WINDOW_SIZE = 8;     // Rolling window of recent reasoning hashes
+const LOOP_REPEAT_THRESHOLD = 3; // If this many hashes in the window match, it's a loop
+const LOOP_CHUNK_MIN_LENGTH = 40; // Ignore very short reasoning chunks (noise)
+
+interface LoopDetectionState {
+  hashes: string[];       // Rolling window of reasoning text hashes
+  loopDetected: boolean;  // Once detected, stays true (warn-once)
+  loopWarned: boolean;    // Only inject warning once per session
+}
+
+const loopDetectionState = new Map<string, LoopDetectionState>();
+
+/**
+ * Hash a reasoning text chunk to a short fingerprint.
+ * We normalize whitespace and lowercase before hashing to catch
+ * near-identical repetitions that differ only in formatting.
+ */
+function hashReasoningChunk(text: string): string {
+  const normalized = text.trim().toLowerCase().replace(/\s+/g, " ");
+  return createHash("sha1").update(normalized).digest("hex").slice(0, 12);
+}
+
+/**
+ * Record a reasoning text chunk for a subagent session and check
+ * for loop detection. Returns true if a loop is newly detected.
+ */
+function recordReasoningChunk(sessionId: string, text: string): boolean {
+  if (text.length < LOOP_CHUNK_MIN_LENGTH) return false;
+
+  let state = loopDetectionState.get(sessionId);
+  if (!state) {
+    state = { hashes: [], loopDetected: false, loopWarned: false };
+    loopDetectionState.set(sessionId, state);
+  }
+
+  // Already detected — no need to keep checking
+  if (state.loopDetected) return false;
+
+  const hash = hashReasoningChunk(text);
+  state.hashes.push(hash);
+
+  // Trim to rolling window size
+  if (state.hashes.length > LOOP_WINDOW_SIZE) {
+    state.hashes = state.hashes.slice(-LOOP_WINDOW_SIZE);
+  }
+
+  // Count how many times the most recent hash appears in the window
+  const latestHash = hash;
+  let repeatCount = 0;
+  for (const h of state.hashes) {
+    if (h === latestHash) repeatCount++;
+  }
+
+  if (repeatCount >= LOOP_REPEAT_THRESHOLD) {
+    state.loopDetected = true;
+    fileLog(
+      `[loop-detect] Reasoning loop detected for subagent session ${sessionId.slice(0, 8)}: ` +
+      `hash=${latestHash} repeated ${repeatCount}/${state.hashes.length} times`,
+      "warn",
+    );
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * Get looping subagent warnings for a primary session.
+ * Returns system-reminder blocks for any subagents that have been
+ * detected as stuck in a reasoning loop.
+ */
+function getLoopingSubagentWarnings(primarySessionId: string): string | null {
+  const warnings: string[] = [];
+
+  for (const [subSid, info] of subagentTracking.entries()) {
+    if (info.parentSessionId !== primarySessionId) continue;
+
+    const loopState = loopDetectionState.get(subSid);
+    if (!loopState || !loopState.loopDetected || loopState.loopWarned) continue;
+
+    loopState.loopWarned = true;
+    warnings.push(
+      `- Subagent \`${info.subagentType}\` (session ${subSid.slice(0, 8)}) is stuck in a reasoning loop — ` +
+      `repeating the same thoughts without making progress. Task: "${info.description}".`
+    );
+    fileLog(
+      `[loop-detect] Warning injected for subagent ${subSid.slice(0, 8)}: type=${info.subagentType}`,
+      "warn",
+    );
+  }
+
+  if (warnings.length === 0) return null;
+
+  const lines = [
+    "<system-reminder>",
+    "## Reasoning Loop Detected",
+    "",
+    "The following subagent(s) are stuck in a reasoning loop (repeating the same thinking patterns):",
+    ...warnings,
+    "",
+    "### Action Required",
+    "The looping subagent is not making progress — it keeps thinking the same thoughts over and over. You should:",
+    "1. **Cancel the stalled subagent** — it will not produce useful output.",
+    "2. **Retry the task** using a different `subagent_type` that uses a different provider/model.",
+    "3. If no alternative agent is suitable, **perform the work directly yourself** without delegating.",
+    "</system-reminder>",
+  ];
+
+  return lines.join("\n");
+}
+
 // ── Task-call timing registry ──────────────────────────────────────
 // When the primary session calls the Task tool, we record a pending
 // spawn.  The NEXT session.created event with a new session ID is
@@ -126,7 +308,14 @@ const subagentSessions = new Set<string>();
 // sub-agent detection was completely broken.  The timing registry
 // provides causal detection based on the spawn→create sequence.
 const SPAWN_TIMEOUT_MS = 30_000; // 30 seconds — pending entries expire after this
-const pendingSubagentSpawns = new Map<string, { timestamp: number }[]>();
+
+interface PendingSpawnEntry {
+  timestamp: number;
+  subagentType: string;
+  description: string;
+}
+
+const pendingSubagentSpawns = new Map<string, PendingSpawnEntry[]>();
 
 /**
  * Check whether a session ID is a known sub-agent session.
@@ -147,7 +336,17 @@ function isVoiceCurlCommand(command: string): boolean {
 // Export for testing
 export { subagentSessions as _subagentSessionsForTest };
 export { pendingSubagentSpawns as _pendingSubagentSpawnsForTest };
+export { subagentTracking as _subagentTrackingForTest };
 export { SPAWN_TIMEOUT_MS as _SPAWN_TIMEOUT_MS_FOR_TEST };
+export { STALL_TIMEOUT_MS as _STALL_TIMEOUT_MS_FOR_TEST };
+export { getStalledSubagentWarnings as _getStalledSubagentWarningsForTest };
+export { loopDetectionState as _loopDetectionStateForTest };
+export { LOOP_WINDOW_SIZE as _LOOP_WINDOW_SIZE_FOR_TEST };
+export { LOOP_REPEAT_THRESHOLD as _LOOP_REPEAT_THRESHOLD_FOR_TEST };
+export { LOOP_CHUNK_MIN_LENGTH as _LOOP_CHUNK_MIN_LENGTH_FOR_TEST };
+export { recordReasoningChunk as _recordReasoningChunkForTest };
+export { getLoopingSubagentWarnings as _getLoopingSubagentWarningsForTest };
+export { hashReasoningChunk as _hashReasoningChunkForTest };
 
 function safeHandler<T>(name: string, fn: () => T): T | undefined {
   try {
@@ -289,6 +488,26 @@ export const PaiPlugin = async (_ctx: unknown) => {
           }
         });
       }
+
+      // Inject stall warnings for subagents that belong to this primary session
+      if (sid && !isKnownSubagent(sid)) {
+        safeHandler("stall.detect", () => {
+          const stallWarning = getStalledSubagentWarnings(sid);
+          if (stallWarning) {
+            const systemArr = (output as { system: string[] }).system;
+            systemArr.push(stallWarning);
+          }
+        });
+
+        // Inject loop detection warnings for subagents stuck in reasoning loops
+        safeHandler("loop.detect", () => {
+          const loopWarning = getLoopingSubagentWarnings(sid);
+          if (loopWarning) {
+            const systemArr = (output as { system: string[] }).system;
+            systemArr.push(loopWarning);
+          }
+        });
+      }
     },
 
     // ── tool.execute.before ──────────────────────────────────
@@ -366,11 +585,18 @@ export const PaiPlugin = async (_ctx: unknown) => {
         (toolNameForAgentBlock === "task" ||
           toolNameForAgentBlock === "Task")
       ) {
+        const argsForSpawn = (input.args ?? input.input ?? {}) as Record<string, unknown>;
+        const spawnSubagentType = String(argsForSpawn.subagent_type ?? argsForSpawn.type ?? "unknown");
+        const spawnDescription = String(argsForSpawn.description ?? argsForSpawn.prompt ?? "").slice(0, 80);
         const queue = pendingSubagentSpawns.get(sidForAgentBlock) ?? [];
-        queue.push({ timestamp: Date.now() });
+        queue.push({
+          timestamp: Date.now(),
+          subagentType: spawnSubagentType,
+          description: spawnDescription,
+        });
         pendingSubagentSpawns.set(sidForAgentBlock, queue);
         fileLog(
-          `[subagent-timing] Pending spawn registered from session ${sidForAgentBlock.slice(0, 8)} (queue depth: ${queue.length})`,
+          `[subagent-timing] Pending spawn registered from session ${sidForAgentBlock.slice(0, 8)} (queue depth: ${queue.length}, type: ${spawnSubagentType})`,
           "info",
         );
       }
@@ -410,6 +636,17 @@ export const PaiPlugin = async (_ctx: unknown) => {
           output,
         ),
       );
+
+      // ── Subagent activity tracking ──
+      // Update last activity timestamp for subagent sessions.
+      // This is the heartbeat signal for stall detection.
+      const sidForActivity = String(input.sessionID ?? input.sessionId ?? "");
+      if (sidForActivity && isKnownSubagent(sidForActivity)) {
+        const tracking = subagentTracking.get(sidForActivity);
+        if (tracking) {
+          tracking.lastActivityAt = Date.now();
+        }
+      }
 
       // ── Skill/Task invocation logging (proves native OC tools are called) ──
       const toolNameAfter = String(input.tool ?? input.toolName ?? "");
@@ -462,14 +699,37 @@ export const PaiPlugin = async (_ctx: unknown) => {
       // Model fallback detection — check if a Task/agent tool failed with a
       // provider error (rate limit, model not found, unavailable). If so, store
       // a fallback suggestion that will be injected into the next system prompt.
-      const toolError = String(input.error ?? output.error ?? "");
+      //
+      // Detection strategy (defense-in-depth):
+      // 1. Top-level error fields (input.error, output.error)
+      // 2. Task output body — provider errors are often buried inside the
+      //    stringified task result, not in a top-level error field
+      // 3. Learning tracker failure pattern (output contains error keywords)
       const toolName = String(input.tool ?? input.toolName ?? "");
-      if (toolError && sid && (toolName === "Task" || toolName === "task" || toolName.startsWith("agent"))) {
+      if (sid && (toolName === "Task" || toolName === "task" || toolName.startsWith("agent"))) {
         safeHandler("modelRouting.errorDetect", () => {
-          const errorType = classifyProviderError(toolError);
-          if (errorType !== "unknown") {
-            const failedModel = String(input.model ?? input.modelId ?? "");
-            setFallbackSuggestion(sid, failedModel || toolName, errorType);
+          // Collect error signals from multiple sources
+          const topLevelError = String(input.error ?? output.error ?? "");
+          const outputStr = typeof output === "string"
+            ? output
+            : JSON.stringify(output ?? "");
+
+          // Check both top-level error and full output body for provider errors
+          const errorSources = [topLevelError, outputStr].filter(Boolean);
+          for (const source of errorSources) {
+            const errorType = classifyProviderError(source);
+            if (errorType !== "unknown") {
+              const failedModel = String(input.model ?? input.modelId ?? "");
+              // Try to extract subagent_type from args for better fallback guidance
+              const argsForFallback = (input.args ?? input.input ?? {}) as Record<string, unknown>;
+              const subagentType = String(argsForFallback.subagent_type ?? argsForFallback.type ?? "");
+              setFallbackSuggestion(sid, failedModel || subagentType || toolName, errorType, undefined, subagentType || undefined);
+              fileLog(
+                `[model-fallback] Provider error detected: type=${errorType} model=${failedModel} subagent=${subagentType} source=${source.slice(0, 120)}`,
+                "info",
+              );
+              break; // One suggestion per failure is enough
+            }
           }
         });
       }
@@ -621,12 +881,15 @@ export const PaiPlugin = async (_ctx: unknown) => {
 
         // Check Task-call timing registry first
         let detectedAsSubagent = false;
+        let detectedParentSid = "";
+        let detectedSpawnInfo: PendingSpawnEntry | null = null;
         const now = Date.now();
         for (const [parentSid, queue] of pendingSubagentSpawns.entries()) {
           // Filter out expired entries
           const validEntries = queue.filter(e => (now - e.timestamp) < SPAWN_TIMEOUT_MS);
           if (validEntries.length > 0) {
-            // Consume the oldest pending spawn (FIFO)
+            // Consume the oldest pending spawn (FIFO), capture metadata first
+            detectedSpawnInfo = validEntries[0] ?? null;
             validEntries.shift();
             if (validEntries.length === 0) {
               pendingSubagentSpawns.delete(parentSid);
@@ -636,8 +899,20 @@ export const PaiPlugin = async (_ctx: unknown) => {
             // Register this session as a sub-agent
             subagentSessions.add(sid);
             detectedAsSubagent = true;
+            detectedParentSid = parentSid;
+
+            // Register activity tracking for stall detection
+            subagentTracking.set(sid, {
+              parentSessionId: parentSid,
+              subagentType: detectedSpawnInfo?.subagentType ?? "unknown",
+              description: detectedSpawnInfo?.description ?? "",
+              spawnedAt: now,
+              lastActivityAt: now,
+              stallWarned: false,
+            });
+
             fileLog(
-              `[subagent-timing] Sub-agent session ${sid.slice(0, 8)} detected via Task-call timing from parent ${parentSid.slice(0, 8)}`,
+              `[subagent-timing] Sub-agent session ${sid.slice(0, 8)} detected via Task-call timing from parent ${parentSid.slice(0, 8)} (type: ${detectedSpawnInfo?.subagentType ?? "unknown"})`,
               "info",
             );
             break;
@@ -696,6 +971,22 @@ export const PaiPlugin = async (_ctx: unknown) => {
         }
       }
 
+      // ── Reasoning loop detection via message.part.updated ──
+      // When a subagent emits reasoning content, hash the text chunk
+      // and check for repetitive thinking patterns.
+      if (eventType === "message.part.updated") {
+        const partProps = (evt.properties ?? evt) as Record<string, unknown>;
+        const part = partProps.part as Record<string, unknown> | undefined;
+        if (part && part.type === "reasoning" && typeof part.text === "string") {
+          const partSessionId = String(part.sessionID ?? part.sessionId ?? "");
+          if (partSessionId && isKnownSubagent(partSessionId)) {
+            safeHandler("loop.detect.record", () => {
+              recordReasoningChunk(partSessionId, part.text as string);
+            });
+          }
+        }
+      }
+
       if (eventType === "session.end") {
         // session.end payload: { type, properties: { sessionID } }
         const endProps = (evt.properties ?? evt) as Record<string, unknown>;
@@ -719,6 +1010,8 @@ export const PaiPlugin = async (_ctx: unknown) => {
           safeHandler("cleanup.fallbackState", () => clearFallbackState(sid));
           safeHandler("cleanup.implicitSentiment", () => clearImplicitSentimentState(sid));
           safeHandler("cleanup.subagentRegistry", () => subagentSessions.delete(sid));
+          safeHandler("cleanup.subagentTracking", () => subagentTracking.delete(sid));
+          safeHandler("cleanup.loopDetection", () => loopDetectionState.delete(sid));
           safeHandler("cleanup.pendingSpawns", () => pendingSubagentSpawns.delete(sid));
           safeHandler("cleanup.prdBinding", () => statuslineClearPRDBinding(sid));
         }

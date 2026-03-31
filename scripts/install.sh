@@ -693,7 +693,8 @@ if [[ -f "$OPENCODE_CONFIG" ]]; then
   info "Backed up: ${OPENCODE_CONFIG}.bak-*"
 
   if command -v jq &>/dev/null; then
-    # Add plugin entry if not already present, and remove any stale "pai" key
+    # Add plugin entry if not already present, remove any stale "pai" key,
+    # and inject full PAI permission rules for all tool types
     UPDATED=$(jq --arg plugin "$PLUGIN_PATH" '
       # Remove the pai section if it exists (migrated to pai-adapter.json)
       del(.pai) |
@@ -704,12 +705,43 @@ if [[ -f "$OPENCODE_CONFIG" ]]; then
         end
       else
         .plugin = [$plugin]
-      end
+      end |
+      # Inject full PAI permission rules — all tool types covered
+      .permission = ((.permission // {}) * {
+        "read": { "*": "allow" },
+        "edit": ((.permission.edit // {}) * {
+          "*": "allow",
+          "~/.claude/*": "ask",
+          "~/.claude/MEMORY/WORK/*": "allow",
+          "~/.claude/MEMORY/LEARNING/REFLECTIONS/*": "allow",
+          "~/.claude/MEMORY/LEARNING/SIGNALS/*": "allow",
+          "~/.claude/MEMORY/WISDOM/*": "allow",
+          "~/.claude/MEMORY/RELATIONSHIP/*": "allow",
+          "~/.claude/MEMORY/STATE/*": "allow",
+          "~/.claude/PAI/USER/TELOS/*": "allow",
+          "~/.claude/transcripts/*": "allow"
+        }),
+        "glob": "allow",
+        "grep": "allow",
+        "list": "allow",
+        "bash": "allow",
+        "task": "allow",
+        "skill": "allow",
+        "webfetch": "allow",
+        "question": "allow",
+        "external_directory": {
+          "*": "ask",
+          "~/.claude/**": "allow",
+          "~/.config/opencode/**": "allow"
+        },
+        "doom_loop": "ask"
+      })
     ' "$OPENCODE_CONFIG") || true
 
     if [[ -n "$UPDATED" ]]; then
       echo "$UPDATED" > "$OPENCODE_CONFIG"
       success "Updated plugin entry in: $OPENCODE_CONFIG"
+      success "Injected PAI permission rules (all tool types, user-owned paths: allow)"
     else
       warn "jq merge failed — please manually add plugin to opencode.json"
     fi
@@ -718,14 +750,45 @@ if [[ -f "$OPENCODE_CONFIG" ]]; then
     info "  \"$PLUGIN_PATH\""
   fi
 else
-  # Create minimal opencode.json with just plugin entry
+  # Create minimal opencode.json with plugin entry and full PAI permission rules
   mkdir -p "$(dirname "$OPENCODE_CONFIG")"
   cat > "$OPENCODE_CONFIG" <<OCCONFIG
 {
   "\$schema": "https://opencode.ai/config.json",
   "plugin": [
     "$PLUGIN_PATH"
-  ]
+  ],
+  "permission": {
+    "read": {
+      "*": "allow"
+    },
+    "edit": {
+      "*": "allow",
+      "~/.claude/*": "ask",
+      "~/.claude/MEMORY/WORK/*": "allow",
+      "~/.claude/MEMORY/LEARNING/REFLECTIONS/*": "allow",
+      "~/.claude/MEMORY/LEARNING/SIGNALS/*": "allow",
+      "~/.claude/MEMORY/WISDOM/*": "allow",
+      "~/.claude/MEMORY/RELATIONSHIP/*": "allow",
+      "~/.claude/MEMORY/STATE/*": "allow",
+      "~/.claude/PAI/USER/TELOS/*": "allow",
+      "~/.claude/transcripts/*": "allow"
+    },
+    "glob": "allow",
+    "grep": "allow",
+    "list": "allow",
+    "bash": "allow",
+    "task": "allow",
+    "skill": "allow",
+    "webfetch": "allow",
+    "question": "allow",
+    "external_directory": {
+      "*": "ask",
+      "~/.claude/**": "allow",
+      "~/.config/opencode/**": "allow"
+    },
+    "doom_loop": "ask"
+  }
 }
 OCCONFIG
   CREATED_FILES+=("$OPENCODE_CONFIG")

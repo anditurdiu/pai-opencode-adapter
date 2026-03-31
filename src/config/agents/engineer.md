@@ -5,10 +5,12 @@ model: github-copilot/claude-sonnet-4.6
 color: "#F97316"
 temperature: 0.2
 permission:
-  read: allow
   edit: allow
   bash: allow
+  task: deny
+  skill: allow
   webfetch: deny
+  question: deny
   external_directory:
     "~/.claude/**": allow
     "~/.config/opencode/**": allow

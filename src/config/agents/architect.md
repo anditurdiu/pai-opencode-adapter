@@ -1,7 +1,7 @@
 ---
 description: System design and architecture agent. Plans technical approaches, reviews designs, evaluates tradeoffs, and creates implementation specs. Does not write production code — produces plans and specs.
 mode: subagent
-model: github-copilot/claude-sonnet-4.6
+model: github-copilot/claude-opus-4.6
 color: "#6366F1"
 temperature: 0.3
 permission:
@@ -19,7 +19,10 @@ permission:
     "git branch*": allow
     "git rev-parse*": allow
     "git -C *": allow
+  task: deny
+  skill: allow
   webfetch: allow
+  question: deny
   external_directory:
     "~/.claude/**": allow
     "~/.config/opencode/**": allow

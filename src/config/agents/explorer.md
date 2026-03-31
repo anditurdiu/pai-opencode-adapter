@@ -1,7 +1,7 @@
 ---
 description: Fast read-only codebase exploration agent. Finds files, searches patterns, traces code paths, and maps project structure. Cannot modify files.
 mode: subagent
-model: github-copilot/claude-sonnet-4.6
+model: zai-coding-plan/glm-4.7
 color: "#22C55E"
 temperature: 0.1
 steps: 30
@@ -21,7 +21,10 @@ permission:
     "git rev-parse*": allow
     "git -C *": allow
     "wc *": allow
+  task: deny
+  skill: allow
   webfetch: deny
+  question: deny
   external_directory:
     "~/.claude/**": allow
     "~/.config/opencode/**": allow

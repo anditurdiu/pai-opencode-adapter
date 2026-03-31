@@ -237,6 +237,7 @@ describe("formatFallbackReminder", () => {
 			errorType: "rate_limit",
 			suggestedModel: "openai/gpt-4o",
 			role: "architect",
+			subagentType: "architect",
 			timestamp: Date.now(),
 		};
 
@@ -244,8 +245,10 @@ describe("formatFallbackReminder", () => {
 		expect(reminder).toContain("<system-reminder>");
 		expect(reminder).toContain("</system-reminder>");
 		expect(reminder).toContain("rate_limit");
-		expect(reminder).toContain("openai/gpt-4o");
-		expect(reminder).toContain("architect");
+		// New format provides actionable guidance with alternative subagent_types
+		expect(reminder).toContain("Provider Error");
+		expect(reminder).toContain("Action Required");
+		expect(reminder).toContain("subagent_type");
 	});
 
 	test("formats reminder when no fallback available", () => {
@@ -254,11 +257,13 @@ describe("formatFallbackReminder", () => {
 			errorType: "model_not_found",
 			suggestedModel: null,
 			role: null,
+			subagentType: null,
 			timestamp: Date.now(),
 		};
 
 		const reminder = formatFallbackReminder(suggestion);
 		expect(reminder).toContain("<system-reminder>");
-		expect(reminder).toContain("No fallback models configured");
+		// With the new format, it either finds alternative agent types or says to do the work directly
+		expect(reminder).toContain("Provider Error");
 	});
 });

@@ -1,7 +1,7 @@
 ---
 description: Lightweight intern agent for simple, well-defined subtasks. Fast and cheap. Best for data transformation, templating, and mechanical code generation.
 mode: subagent
-model: google/gemini-2.5-flash-lite
+model: zai-coding-plan/glm-4.7
 color: "#94A3B8"
 temperature: 0.1
 steps: 20
@@ -15,6 +15,10 @@ permission:
     "git status*": allow
     "git log*": allow
     "git diff*": allow
+  task: deny
+  skill: allow
+  webfetch: deny
+  question: deny
   external_directory:
     "~/.claude/**": allow
     "~/.config/opencode/**": allow
