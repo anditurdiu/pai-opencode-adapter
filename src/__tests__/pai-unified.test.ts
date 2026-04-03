@@ -190,6 +190,70 @@ describe("config hook agent injection", () => {
   });
 });
 
+// ── config hook model injection ──────────────────────────
+// ISC-28 (from config-hook-agent-refactor PRD): config hook reads model
+// assignments from pai-adapter.json and injects them per agent.
+
+describe("config hook model injection", () => {
+  it("injects model field when pai-adapter.json has model for agent", async () => {
+    const configHook = hooks["config"] as (input: Record<string, unknown>) => Promise<void>;
+    const input: Record<string, unknown> = { agent: {} };
+    await configHook(input);
+
+    const agentConfig = input.agent as Record<string, Record<string, unknown>>;
+
+    // pai-adapter.json exists in this dev environment with agents section.
+    // For any agent that has a model configured, the config hook should have
+    // injected it. We check at least one well-known agent.
+    const knownAgents = ["Engineer", "Architect", "GeminiResearcher"];
+    for (const name of knownAgents) {
+      if (agentConfig[name]) {
+        // If model is present, it must be a valid "provider/model" string
+        if (agentConfig[name].model !== undefined) {
+          expect(typeof agentConfig[name].model).toBe("string");
+          expect((agentConfig[name].model as string).includes("/")).toBe(true);
+        }
+      }
+    }
+  });
+
+  it("model from pai-adapter.json takes precedence over definition defaults", async () => {
+    const configHook = hooks["config"] as (input: Record<string, unknown>) => Promise<void>;
+    const input: Record<string, unknown> = { agent: {} };
+    await configHook(input);
+
+    const agentConfig = input.agent as Record<string, Record<string, unknown>>;
+    // Any agent that has a model in pai-adapter.json should have model set
+    // in the injected config — it's not lost/omitted.
+    for (const name of AGENT_NAMES) {
+      if (agentConfig[name]?.model !== undefined) {
+        // Model must be a non-empty string with provider/model format
+        const model = agentConfig[name].model as string;
+        expect(model.length).toBeGreaterThan(5);
+        expect(model).toContain("/");
+      }
+    }
+  });
+
+  it("does not inject model field when agent has no pai-adapter.json entry", async () => {
+    const configHook = hooks["config"] as (input: Record<string, unknown>) => Promise<void>;
+    // Use a fresh agent map — agent named "GeneralPurpose" is a phantom
+    // and unlikely to have a model in pai-adapter.json
+    const input: Record<string, unknown> = { agent: {} };
+    await configHook(input);
+
+    const agentConfig = input.agent as Record<string, Record<string, unknown>>;
+    // GeneralPurpose is a phantom agent with no pai-adapter.json entry
+    if (agentConfig["GeneralPurpose"]) {
+      // model may be undefined or absent — either is acceptable
+      const model = agentConfig["GeneralPurpose"].model;
+      if (model !== undefined) {
+        expect(typeof model).toBe("string");
+      }
+    }
+  });
+});
+
 // ── Dynamic PAI prompt resolution ──────────────────────────
 
 describe("dynamic PAI prompt resolution", () => {

@@ -75,6 +75,7 @@ import { recordTranscriptEntry, captureFullTranscript } from "../handlers/transc
 import { nameSession, clearNamingState } from "../handlers/session-namer.js";
 import { extractRelationshipSignal, persistRelationshipSignal } from "../handlers/relationship-capture.js";
 import { AGENT_DEFINITIONS, AGENT_NAMES } from "../agents/definitions.js";
+import { readAgentModel } from "../lib/provider-probe.js";
 
 const PLUGIN_NAME = "pai-adapter";
 const PLUGIN_VERSION = "0.10.0";
@@ -469,7 +470,7 @@ export const PaiPlugin = async (ctx: PluginInput) => {
           if (agentConfig[name]) continue; // Preserve existing entries
           const def = AGENT_DEFINITIONS[name];
           if (!def) continue;
-          agentConfig[name] = {
+          const entry: Record<string, unknown> = {
             prompt: def.prompt,
             permission: def.permission,
             description: def.defaults.description,
@@ -478,6 +479,12 @@ export const PaiPlugin = async (ctx: PluginInput) => {
             maxSteps: def.defaults.steps,
             temperature: def.defaults.temperature,
           };
+          // Overlay model from pai-adapter.json when configured — this is the
+          // single source of truth for which model each agent uses, and overrides
+          // OpenCode's own defaults.
+          const model = readAgentModel(name);
+          if (model) entry.model = model;
+          agentConfig[name] = entry;
         }
 
         // Disable internal adapter shim agents — these are thin wrappers that
