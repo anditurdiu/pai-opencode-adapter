@@ -2,10 +2,11 @@
 
 | Feature | Status | Description |
 |---------|--------|-------------|
-| **Hook Translation** | 🔄 Adapted from PAI | Maps 20 PAI hooks → 9 semantic events → 7 OpenCode hooks |
+| **Hook Translation** | 🔄 Adapted from PAI | Maps 20 PAI hooks → 9 semantic events → 8 OpenCode hooks |
 | **Config Translation** | 🔄 Adapted from PAI | `settings.json` → `opencode.json` with merge semantics |
 | **Session State** | 🔄 Adapted from PAI | Per-session `Map<sessionId, T>` with auto-cleanup |
-| **Security Validator** | 🔄 Adapted from PAI | Tool gating, input sanitization, bash command blocking |
+| **Security Validator** | 🔄 Adapted from PAI | Input sanitization + 7-category injection detection (`tool.execute.before`) |
+| **Secret Scrubber** | ✅ Native to OC | Redacts env secrets and API key patterns from LLM input messages (`experimental.chat.messages.transform`) |
 | **Plan Mode** | 🔄 Adapted from PAI | Read-only mode via `/plan` command, blocks destructive tools |
 | **Model Routing** | ✅ Native to OC | User-configurable model-per-role mapping with fallback chains |
 | **Voice Notifications** | 🔄 Adapted from PAI | ElevenLabs TTS, ntfy.sh, Discord webhooks |
@@ -39,7 +40,7 @@
 
 ## What This Adapter Does
 
-1. **Event translation** — Maps 20 PAI hook files → 9 semantic events → 7 OpenCode plugin hooks
+1. **Event translation** — Maps 20 PAI hook files → 9 semantic events → 8 OpenCode plugin hooks
 2. **Config translation** — Converts `settings.json` to `opencode.json` format
 3. **State management** — Per-session state with automatic cleanup
 4. **Security validation** — Tool gating and input sanitization

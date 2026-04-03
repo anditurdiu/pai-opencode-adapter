@@ -1,8 +1,8 @@
 # PAI-OpenCode Adapter
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Version](https://img.shields.io/badge/version-0.9.1-blue.svg)](https://github.com/anditurdiu/pai-opencode-adapter)
-[![Test Status](https://img.shields.io/badge/tests-765%20pass-green.svg)](https://github.com/anditurdiu/pai-opencode-adapter)
+[![Version](https://img.shields.io/badge/version-0.11.0-blue.svg)](https://github.com/anditurdiu/pai-opencode-adapter)
+[![Test Status](https://img.shields.io/badge/tests-777%20pass-green.svg)](https://github.com/anditurdiu/pai-opencode-adapter)
 
 **Run [PAI](https://github.com/danielmiessler/Personal_AI_Infrastructure) without an Anthropic subscription.** Use any LLM provider — OpenAI, Google, Ollama, or Anthropic — through [OpenCode](https://opencode.ai), the open-source AI coding assistant.
 
@@ -26,7 +26,7 @@ This adapter lets you run the **full PAI experience** on OpenCode with **any LLM
 
 The PAI-OpenCode Adapter is a **plugin adapter layer**, not a fork. It sits between PAI content (hooks, settings, agents) and the OpenCode plugin API, translating events and configurations so your PAI workflows run unchanged on OpenCode.
 
-**What it does:** Event translation (20 PAI hooks → 7 OpenCode hooks), config translation, session state management, security validation, compaction handling, voice notifications, and subagent reliability (error detection, model fallback, stall detection, reasoning loop detection).
+**What it does:** Event translation (20 PAI hooks → 8 OpenCode hooks), config translation, session state management, security validation, secret scrubbing, compaction handling, voice notifications, and subagent reliability (error detection, model fallback, stall detection, reasoning loop detection).
 
 **What it doesn't do:** Modify PAI source files, add npm dependencies beyond TypeScript, or auto-merge updates.
 
@@ -169,6 +169,16 @@ Both [PAI](https://github.com/danielmiessler/Personal_AI_Infrastructure) and [Op
 
 ## Changelog
 
+### v0.11.0 (2026-04-04)
+
+**Security hardening:**
+
+- Secret scrubber — new `experimental.chat.messages.transform` hook; redacts env secrets and API key patterns (Anthropic, OpenAI, GitHub, AWS, Slack, Google) from LLM input messages before they reach the provider
+- `.env` file blocking hardened — all agents now use explicit `read: { "*.env": "deny" }` permissions instead of blanket `read: "allow"`, closing the gap where agent permissions could override OpenCode's default `.env` deny rules
+- Base64 false-positive fix — `sanitizeInput` now only decodes base64 blobs that contain `+` or `/`, preventing plain alphanumeric identifiers (function names etc.) from being misidentified as injections
+- Dead code removed — `permissionGateHandler`, `PROTECTED_PATHS`, `DANGEROUS_COMMANDS`, `SAFE_TOOLS` deleted; `chat.params` hook documented and deferred
+- 777 tests, 0 failures (net +6)
+
 ### v0.9.1 (2026-03-31)
 
 **Subagent reliability suite:**
@@ -196,7 +206,7 @@ Both [PAI](https://github.com/danielmiessler/Personal_AI_Infrastructure) and [Op
 
 **Initial release:**
 
-- Event translation for 20 PAI hooks across 7 OpenCode plugin hooks
+- Event translation for 20 PAI hooks across 8 OpenCode plugin hooks
 - Config translation with merge semantics
 - Session-scoped state management
 - Security validator with tool gating

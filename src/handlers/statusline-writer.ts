@@ -19,7 +19,6 @@ export interface StatusLineData {
   messageCount: number;
   learningSignals: { positive: number; negative: number };
   tokenUsage: { used: number; limit: number };
-  planMode: boolean;
   activeAgent: string;
   duration: number;
   // PRD-enriched fields
@@ -53,7 +52,6 @@ function defaultStatus(): StatusLineData {
     messageCount: 0,
     learningSignals: { positive: 0, negative: 0 },
     tokenUsage: { used: 0, limit: 200000 },
-    planMode: false,
     activeAgent: "",
     duration: 0,
     effortLevel: "",
@@ -159,20 +157,6 @@ export function onPhaseChange(sessionId: string, phase: string): void {
   }
 
   status.phase = phase.toUpperCase();
-  writeStatus(sid, status);
-}
-
-export function onPlanModeChange(sessionId: string, enabled: boolean): void {
-  const sid = sessionId || activeSessionId;
-  if (!sid) return;
-
-  let status = sessionStatus.get(sid);
-  if (!status) {
-    status = defaultStatus();
-    sessionStatus.set(sid, status);
-  }
-
-  status.planMode = enabled;
   writeStatus(sid, status);
 }
 

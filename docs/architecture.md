@@ -19,12 +19,13 @@ flowchart TB
         B2[event-adapter.ts<br/>Event Translation]
         B3[config-translator.ts<br/>Config Merge]
         B4[state-manager.ts<br/>Session State]
-        B5[security-validator.ts<br/>Tool Gating]
+        B5[security-validator.ts<br/>Input Sanitization]
         B6[compaction-handler.ts<br/>Context Survival]
         B7[voice-notifications.ts<br/>TTS Alerts]
         B8[model-resolver.ts<br/>Model Routing + Fallback]
         B9[env-loader.ts<br/>API Key Loading]
         B10[skill-loader.ts<br/>PAI Skill Support]
+        B11[secret-scrubber.ts<br/>LLM Input Scrubbing]
     end
 
     subgraph RELIABILITY["Subagent Reliability Suite"]
@@ -35,13 +36,14 @@ flowchart TB
     end
 
     subgraph OPENCODE_API["OpenCode Plugin API"]
-        C1[permission.ask]
-        C2[tool.execute.before]
-        C3[tool.execute.after]
-        C4[chat.message]
-        C5[experimental.chat.system.transform]
+        C1[tool.execute.before]
+        C2[tool.execute.after]
+        C3[chat.message]
+        C4[experimental.chat.system.transform]
+        C5[experimental.chat.messages.transform]
         C6[experimental.session.compacting]
-        C7[event wildcard]
+        C7[config]
+        C8[event wildcard]
     end
 
     subgraph RUNTIME["OpenCode Runtime"]
@@ -74,7 +76,8 @@ flowchart TB
 | Event Adapter | `src/adapters/event-adapter.ts` | PAI → OpenCode event translation |
 | Config Translator | `src/adapters/config-translator.ts` | `settings.json` → `opencode.json` |
 | State Manager | `src/lib/state-manager.ts` | Session-scoped `Map<sessionId, T>` |
-| Security Validator | `src/handlers/security-validator.ts` | Tool gating, input sanitization |
+| Security Validator | `src/handlers/security-validator.ts` | Input sanitization, 7-category injection detection |
+| Secret Scrubber | `src/handlers/secret-scrubber.ts` | Redacts env secrets + API key patterns from LLM input messages |
 | Compaction Handler | `src/handlers/compaction-handler.ts` | Proactive + reactive compaction |
 | Voice Notifications | `src/handlers/voice-notifications.ts` | ElevenLabs TTS, ntfy, Discord |
 

@@ -6,7 +6,6 @@ import {
   updateTabTitle,
   updateTabColor,
   onTaskStart,
-  onPlanModeActivated,
   onError,
   onSessionEnd,
   type TerminalType,
@@ -178,10 +177,6 @@ describe("high-level event handlers", () => {
 
   it("onTaskStart does not throw", () => {
     expect(() => onTaskStart("building feature X")).not.toThrow();
-  });
-
-  it("onPlanModeActivated does not throw", () => {
-    expect(() => onPlanModeActivated()).not.toThrow();
   });
 
   it("onError does not throw", () => {

@@ -96,10 +96,21 @@ const BASE_EXTERNAL_DIR: Record<string, "allow" | "deny"> = {
 	"~/.config/opencode/**": "allow",
 };
 
+// Explicit read permission that preserves OpenCode's default .env deny rules.
+// Using read: "allow" (string) as an agent permission overrides the global default
+// deny for *.env and *.env.* files. This object form re-applies those denies
+// explicitly so agents cannot accidentally read .env files.
+const ENV_SAFE_READ: Record<string, "allow" | "deny"> = {
+	"*": "allow",
+	"*.env": "deny",
+	"*.env.*": "deny",
+	"*.env.example": "allow",
+};
+
 // ── Default Profiles for Unknown Agents ───────────────────
 
 const DEFAULT_PERMISSION: AgentPermission = {
-	read: "allow",
+	read: { ...ENV_SAFE_READ },
 	edit: "deny",
 	bash: { ...READONLY_GIT_BASH },
 	task: "deny",
@@ -125,7 +136,7 @@ const DEFAULT_DEFAULTS: AgentDefaults = {
 const KNOWN_AGENT_PROFILES: Record<string, { permission: AgentPermission; defaults: AgentDefaults }> = {
 	Architect: {
 		permission: {
-			read: "allow",
+			read: { ...ENV_SAFE_READ },
 			edit: "deny",
 			bash: { ...READONLY_GIT_BASH },
 			task: { "*": "deny", "Engineer": "allow", "GeminiResearcher": "allow", "ClaudeResearcher": "allow", "QATester": "allow" },
@@ -145,7 +156,7 @@ const KNOWN_AGENT_PROFILES: Record<string, { permission: AgentPermission; defaul
 
 	Artist: {
 		permission: {
-			read: "allow",
+			read: { ...ENV_SAFE_READ },
 			edit: "deny",
 			bash: "deny",
 			task: "deny",
@@ -165,7 +176,7 @@ const KNOWN_AGENT_PROFILES: Record<string, { permission: AgentPermission; defaul
 
 	ClaudeResearcher: {
 		permission: {
-			read: "allow",
+			read: { ...ENV_SAFE_READ },
 			edit: "deny",
 			bash: { ...RESEARCHER_BASH },
 			task: { "*": "deny", "Engineer": "allow", "QATester": "allow", "CodexResearcher": "allow" },
@@ -185,7 +196,7 @@ const KNOWN_AGENT_PROFILES: Record<string, { permission: AgentPermission; defaul
 
 	CodexResearcher: {
 		permission: {
-			read: "allow",
+			read: { ...ENV_SAFE_READ },
 			edit: "deny",
 			bash: { ...RESEARCHER_BASH },
 			task: { "*": "deny", "Engineer": "allow", "ClaudeResearcher": "allow", "GeminiResearcher": "allow" },
@@ -205,7 +216,7 @@ const KNOWN_AGENT_PROFILES: Record<string, { permission: AgentPermission; defaul
 
 	Designer: {
 		permission: {
-			read: "allow",
+			read: { ...ENV_SAFE_READ },
 			edit: "deny",
 			bash: { "*": "deny", "grep *": "allow", "rg *": "allow", "git status*": "allow", "git log*": "allow", "git diff*": "allow" },
 			task: { "*": "deny", "Engineer": "allow", "QATester": "allow" },
@@ -225,7 +236,7 @@ const KNOWN_AGENT_PROFILES: Record<string, { permission: AgentPermission; defaul
 
 	Engineer: {
 		permission: {
-			read: "allow",
+			read: { ...ENV_SAFE_READ },
 			edit: "allow",
 			bash: "allow",
 			task: { "*": "deny", "Architect": "allow", "ClaudeResearcher": "allow", "GeminiResearcher": "allow", "QATester": "allow", "CodexResearcher": "allow" },
@@ -245,7 +256,7 @@ const KNOWN_AGENT_PROFILES: Record<string, { permission: AgentPermission; defaul
 
 	GeminiResearcher: {
 		permission: {
-			read: "allow",
+			read: { ...ENV_SAFE_READ },
 			edit: "deny",
 			bash: { ...RESEARCHER_BASH },
 			task: { "*": "deny", "Engineer": "allow", "ClaudeResearcher": "allow", "CodexResearcher": "allow" },
@@ -265,7 +276,7 @@ const KNOWN_AGENT_PROFILES: Record<string, { permission: AgentPermission; defaul
 
 	GrokResearcher: {
 		permission: {
-			read: "allow",
+			read: { ...ENV_SAFE_READ },
 			edit: "deny",
 			bash: { ...RESEARCHER_BASH },
 			task: { "*": "deny", "Engineer": "allow", "ClaudeResearcher": "allow", "GeminiResearcher": "allow" },
@@ -285,7 +296,7 @@ const KNOWN_AGENT_PROFILES: Record<string, { permission: AgentPermission; defaul
 
 	PerplexityResearcher: {
 		permission: {
-			read: "allow",
+			read: { ...ENV_SAFE_READ },
 			edit: "deny",
 			bash: { ...RESEARCHER_BASH },
 			task: { "*": "deny", "Engineer": "allow", "ClaudeResearcher": "allow", "GeminiResearcher": "allow" },
@@ -305,7 +316,7 @@ const KNOWN_AGENT_PROFILES: Record<string, { permission: AgentPermission; defaul
 
 	QATester: {
 		permission: {
-			read: "allow",
+			read: { ...ENV_SAFE_READ },
 			edit: "deny",
 			bash: { "*": "deny", "grep *": "allow", "rg *": "allow", "npx playwright*": "allow", "bun test*": "allow", "npm test*": "allow" },
 			task: "deny",
@@ -334,7 +345,7 @@ const KNOWN_AGENT_PROFILES: Record<string, { permission: AgentPermission; defaul
 	},
 	Plan: {
 		permission: {
-			read: "allow",
+			read: { ...ENV_SAFE_READ },
 			edit: "deny",
 			bash: { ...READONLY_GIT_BASH },
 			task: "deny",
@@ -353,7 +364,7 @@ const KNOWN_AGENT_PROFILES: Record<string, { permission: AgentPermission; defaul
 	},
 	Pentester: {
 		permission: {
-			read: "allow",
+			read: { ...ENV_SAFE_READ },
 			edit: "allow", // Rook needs edit per his Pentester.md permissions
 			bash: "allow",
 			task: "deny", // Simplified per PAI rules
@@ -373,7 +384,7 @@ const KNOWN_AGENT_PROFILES: Record<string, { permission: AgentPermission; defaul
 
 	BrowserAgent: {
 		permission: {
-			read: "allow",
+			read: { ...ENV_SAFE_READ },
 			edit: "deny",
 			bash: "allow", // Needs full bash for playwright-cli commands
 			task: "deny",
@@ -393,7 +404,7 @@ const KNOWN_AGENT_PROFILES: Record<string, { permission: AgentPermission; defaul
 
 	UIReviewer: {
 		permission: {
-			read: "allow",
+			read: { ...ENV_SAFE_READ },
 			edit: "deny",
 			bash: "allow", // Needs full bash for playwright-cli commands
 			task: "deny",
@@ -413,7 +424,7 @@ const KNOWN_AGENT_PROFILES: Record<string, { permission: AgentPermission; defaul
 
 	Algorithm: {
 		permission: {
-			read: "allow",
+			read: { ...ENV_SAFE_READ },
 			edit: "allow",
 			bash: "allow",
 			task: "allow", // Algorithm orchestrates — needs full task spawning

@@ -1,7 +1,6 @@
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { homedir } from "node:os";
 import { tool } from "@opencode-ai/plugin";
 import type { PluginInput } from "@opencode-ai/plugin";
 import { fileLog } from "../lib/file-logger.js";
@@ -9,20 +8,14 @@ import { emit as eventBusEmit } from "../core/event-bus.js";
 import { isDuplicate, clearSessionDedup } from "../core/dedup-cache.js";
 
 import {
-  permissionGateHandler,
   inputValidationHandler,
 } from "../handlers/security-validator.js";
+import { secretScrubberHandler } from "../handlers/secret-scrubber.js";
 import { contextLoaderHandler, clearContextCache, getSubagentPreamble } from "../handlers/context-loader.js";
 import {
   registerSubagentType,
   clearSubagentType,
 } from "../lib/agent-type-registry.js";
-import {
-  planModePermissionHandler,
-  planModeMessageHandler,
-  isPlanModeActive,
-  clearPlanModeState,
-} from "../handlers/plan-mode.js";
 import {
   toolExecuteAfterHandler,
   chatMessageHandler,
@@ -35,14 +28,13 @@ import {
   clearCompactionState,
 } from "../handlers/compaction-handler.js";
 import { voiceNotificationHandler, speakText, getStartupGreeting, routeNotificationByDuration, recordSessionStart } from "../handlers/voice-notifications.js";
-import { onTaskStart, onSessionEnd as terminalSessionEnd, onPlanModeActivated, onError as terminalOnError } from "../handlers/terminal-ui.js";
+import { onTaskStart, onSessionEnd as terminalSessionEnd, onError as terminalOnError } from "../handlers/terminal-ui.js";
 import {
   onSessionStart as statuslineSessionStart,
   onMessageReceived as statuslineMessageReceived,
   onToolExecuted as statuslineToolExecuted,
   onTokenUsage as statuslineTokenUsage,
   onPhaseChange as statuslinePhaseChange,
-  onPlanModeChange as statuslinePlanModeChange,
   onSessionEnd as statuslineSessionEnd,
   setContextLimit as statuslineSetContextLimit,
   syncFromPRD as statuslineSyncFromPRD,
@@ -369,6 +361,13 @@ export const __testInternals = {
   hashReasoningChunk,
 };
 
+/**
+ * Duration map for tool.execute.before/after correlation.
+ * Keyed by callID, stores Date.now() at before-hook time.
+ * Used to compute durationMs in after-hook (SDK does not provide it).
+ */
+const durationMap = new Map<string, number>();
+
 function safeHandler<T>(name: string, fn: () => T): T | undefined {
   try {
     return fn();
@@ -400,54 +399,6 @@ export const PaiPlugin = async (ctx: PluginInput) => {
   });
 
   return {
-    // ── permission.ask ──────────────────────────────────────
-    "permission.ask": async (input: Record<string, unknown>, output: Record<string, unknown>) => {
-      // ── External directory auto-allow for PAI fundamental paths ──
-      // OpenCode sends: { permission: "external_directory", patterns: ["/abs/path/*"], ... }
-      // These paths must never prompt the user — they are core PAI infrastructure.
-      if (input.permission === "external_directory") {
-        const home = homedir();
-        const PAI_ALLOWED_PREFIXES = [
-          home + "/.claude/",
-          home + "/.config/opencode/",
-        ];
-        const patterns = Array.isArray(input.patterns) ? (input.patterns as string[]) : [];
-        const allAllowed = patterns.length > 0 && patterns.every((p) => {
-          const normalized = typeof p === "string" ? p.replace(/\\/g, "/") : "";
-          return PAI_ALLOWED_PREFIXES.some((prefix) => normalized.startsWith(prefix));
-        });
-        if (allAllowed) {
-          fileLog(`[permission] auto-allow external_directory for PAI paths: ${patterns.join(", ")}`, "info");
-          (output as { status: string }).status = "allow";
-          return;
-        }
-        // Non-PAI external directory — let OpenCode's default ask behaviour show
-        return;
-      }
-
-      // ── Tool-based security gate (old-style permission requests) ──
-      safeHandler("security.permissionGate", () =>
-        permissionGateHandler(
-          input as { tool?: string; args?: Record<string, unknown>; sessionID?: string },
-          output as { status: "ask" | "deny" | "allow" },
-        ),
-      );
-
-      // Plan mode tool gate
-      const sessionId = String(input.sessionId ?? input.sessionID ?? "");
-      const toolName = String(input.toolName ?? input.tool ?? "");
-      const bashCommand = String(input.bashCommand ?? "");
-      safeHandler("planMode.toolGate", () => {
-        if (!sessionId || !toolName) return;
-        return planModePermissionHandler(
-          sessionId,
-          toolName,
-          bashCommand,
-          output as { status?: "ask" | "deny" | "allow" },
-        );
-      });
-    },
-
     // ── config ───────────────────────────────────────────────
     // Injects PAI agent definitions into the OpenCode config at startup.
     // This is the runtime-safe alternative to deploying static .md files:
@@ -575,16 +526,59 @@ export const PaiPlugin = async (ctx: PluginInput) => {
       }
     },
 
+    // ── experimental.chat.messages.transform ─────────────────
+    //
+    // SDK signature (ground truth — @opencode-ai/plugin v1.3.13):
+    //   input: {}   always empty — no session context available
+    //   output: { messages: { info: Message; parts: Part[] }[] }  MUTABLE
+    //
+    // Fires before messages are sent to the LLM provider (input side only).
+    // Scrubs secrets and API keys from text/reasoning parts to prevent
+    // accidental leakage of env secrets to the LLM provider's servers.
+    "experimental.chat.messages.transform": async (
+      _input: Record<string, never>,
+      output: Record<string, unknown>,
+    ) => {
+      await safeHandler("secretScrubber", () =>
+        secretScrubberHandler(
+          _input,
+          output as { messages: { info: { id: string }; parts: { type: string; text?: string; [key: string]: unknown }[] }[] }
+        )
+      );
+    },
+
     // ── tool.execute.before ──────────────────────────────────
+    //
+    // SDK signature (ground truth — @opencode-ai/plugin):
+    //   input: { tool: string; sessionID: string; callID: string }
+    //   output: { args: any }
+    //
+    // Key facts:
+    //   - args live in OUTPUT.args, not input (input has no args field)
+    //   - Blocking is done by throwing an Error — there is no output.block field
+    //   - safeHandler MUST NOT wrap blocking paths (it swallows errors)
     "tool.execute.before": async (
       input: Record<string, unknown>,
       output: Record<string, unknown>,
     ) => {
-      safeHandler("security.inputValidation", () =>
-        inputValidationHandler(
-          input as { tool?: string; args?: Record<string, unknown>; sessionID?: string },
-          output as { block?: boolean; reason?: string },
-        ),
+      // ── Fix 4: Record start time for duration tracking ──
+      // Keyed by callID so tool.execute.after can compute elapsed ms.
+      const callIdForDuration = String(input.callID ?? input.callId ?? "");
+      if (callIdForDuration) {
+        durationMap.set(callIdForDuration, Date.now());
+      }
+
+      // ── Real args are in output.args (SDK ground truth) ──
+      const args = (output.args ?? {}) as Record<string, unknown>;
+      const toolName = String(input.tool ?? input.toolName ?? "");
+      const sid = String(input.sessionID ?? input.sessionId ?? "");
+
+      // ── Layer 2: Security input validation (throws on BLOCK-severity injection) ──
+      // NOT wrapped in safeHandler — blocking must propagate to OpenCode.
+      // Fail-open is handled inside inputValidationHandler (non-BLOCK errors are swallowed).
+      await inputValidationHandler(
+        { tool: toolName, sessionID: sid },
+        { args },
       );
 
       // ── Voice curl blocking for sub-agent sessions ──
@@ -592,25 +586,19 @@ export const PaiPlugin = async (ctx: PluginInput) => {
       // voice curl commands (curl -X POST localhost:8888/notify).  Despite
       // instructions saying "subagents must NOT execute voice curls", LLMs
       // routinely ignore this.  We enforce it here at the infrastructure
-      // level by blocking bash commands that target the voice proxy.
-      const toolNameForVoiceBlock = String(input.tool ?? input.toolName ?? "");
-      const sidForVoiceBlock = String(input.sessionID ?? input.sessionId ?? "");
+      // level by throwing so OpenCode cancels the bash execution.
       if (
-        (toolNameForVoiceBlock === "bash" || toolNameForVoiceBlock === "Bash") &&
-        sidForVoiceBlock &&
-        isKnownSubagent(sidForVoiceBlock)
+        (toolName === "bash" || toolName === "Bash") &&
+        sid &&
+        isKnownSubagent(sid)
       ) {
-        const argsForVoiceBlock = (input.args ?? input.input ?? {}) as Record<string, unknown>;
-        const command = String(argsForVoiceBlock.command ?? argsForVoiceBlock.cmd ?? "");
+        const command = String(args.command ?? args.cmd ?? "");
         if (isVoiceCurlCommand(command)) {
           fileLog(
-            `[voice-block] Blocked voice curl from sub-agent session ${sidForVoiceBlock.slice(0, 8)}`,
+            `[voice-block] Blocked voice curl from sub-agent session ${sid.slice(0, 8)}`,
             "info",
           );
-          (output as { block?: boolean; reason?: string }).block = true;
-          (output as { block?: boolean; reason?: string }).reason =
-            "Voice notifications are reserved for the primary coordinator session";
-          return;
+          throw new Error("Voice notifications are reserved for the primary coordinator session");
         }
       }
 
@@ -622,54 +610,50 @@ export const PaiPlugin = async (ctx: PluginInput) => {
       // (explorer, intern) per the 2-level nesting model.  Permission
       // enforcement is handled by OpenCode's agent permission system, not
       // by runtime blocking here.
-      const toolNameForAgentBlock = String(input.tool ?? input.toolName ?? "");
-      const sidForAgentBlock = String(input.sessionID ?? input.sessionId ?? "");
-      if (
-        sidForAgentBlock &&
-        (toolNameForAgentBlock === "task" ||
-          toolNameForAgentBlock === "Task")
-      ) {
-        const argsForSpawn = (input.args ?? input.input ?? {}) as Record<string, unknown>;
-        const spawnSubagentType = String(argsForSpawn.subagent_type ?? argsForSpawn.type ?? "unknown");
-        const spawnDescription = String(argsForSpawn.description ?? argsForSpawn.prompt ?? "").slice(0, 80);
-        const queue = pendingSubagentSpawns.get(sidForAgentBlock) ?? [];
+      if (sid && (toolName === "task" || toolName === "Task")) {
+        const spawnSubagentType = String(args.subagent_type ?? args.type ?? "unknown");
+        const spawnDescription = String(args.description ?? args.prompt ?? "").slice(0, 80);
+        const queue = pendingSubagentSpawns.get(sid) ?? [];
         queue.push({
           timestamp: Date.now(),
           subagentType: spawnSubagentType,
           description: spawnDescription,
         });
-        pendingSubagentSpawns.set(sidForAgentBlock, queue);
+        pendingSubagentSpawns.set(sid, queue);
         fileLog(
-          `[subagent-timing] Pending spawn registered from session ${sidForAgentBlock.slice(0, 8)} (queue depth: ${queue.length}, type: ${spawnSubagentType})`,
+          `[subagent-timing] Pending spawn registered from session ${sid.slice(0, 8)} (queue depth: ${queue.length}, type: ${spawnSubagentType})`,
           "info",
         );
 
         // ── Provider health pre-flight check ──
         // Before spawning a subagent, check if its model's provider is
         // currently unhealthy (recently failed with rate_limit, unavailable,
-        // etc.). If so, BLOCK the Task call and return an error with
-        // guidance for an alternative subagent_type.
+        // etc.). Throw to block the Task call and give the LLM guidance for
+        // an alternative subagent_type.
         //
         // This prevents OpenCode's infinite internal retry loop (ROOT CAUSE
         // #2) — instead of spawning a subagent that will retry a broken
         // provider for hours, we fail fast and tell the LLM to use an
         // alternative immediately.
-        const healthCheck = safeHandler("provider.healthCheck", () =>
-          checkSubagentHealth(spawnSubagentType),
-        );
+        //
+        // NOT wrapped in safeHandler — blocking must propagate.
+        let healthCheck: { reason: string } | null | undefined;
+        try {
+          healthCheck = checkSubagentHealth(spawnSubagentType);
+        } catch {
+          healthCheck = null; // fail-open on unexpected checkSubagentHealth errors
+        }
         if (healthCheck) {
           fileLog(
             `[provider-health] BLOCKED Task call for subagent "${spawnSubagentType}": ${healthCheck.reason}`,
             "warn",
           );
-          (output as { block?: boolean; reason?: string }).block = true;
-          (output as { block?: boolean; reason?: string }).reason = healthCheck.reason;
-          // Remove the pending spawn since we blocked it
+          // Undo the pending spawn we just pushed before throwing
           queue.pop();
           if (queue.length === 0) {
-            pendingSubagentSpawns.delete(sidForAgentBlock);
+            pendingSubagentSpawns.delete(sid);
           }
-          return;
+          throw new Error(healthCheck.reason);
         }
 
         // ── Max concurrent subagent guard ──
@@ -681,9 +665,9 @@ export const PaiPlugin = async (ctx: PluginInput) => {
         //
         // Only applies to primary sessions — subagent sessions are already
         // blocked from calling Task via the context isolation layer.
-        if (!isKnownSubagent(sidForAgentBlock)) {
+        if (!isKnownSubagent(sid)) {
           const activeSubagentsForParent = [...subagentTracking.values()].filter(
-            (info) => info.parentSessionId === sidForAgentBlock,
+            (info) => info.parentSessionId === sid,
           ).length;
           if (activeSubagentsForParent >= 2) {
             const reason =
@@ -692,38 +676,33 @@ export const PaiPlugin = async (ctx: PluginInput) => {
               `cause stalls and frozen sessions. Wait for a running subagent to complete, ` +
               `then spawn the next one.`;
             fileLog(
-              `[concurrency-guard] BLOCKED Task call: ${activeSubagentsForParent} active subagents for ${sidForAgentBlock.slice(0, 8)}, max is 2`,
+              `[concurrency-guard] BLOCKED Task call: ${activeSubagentsForParent} active subagents for ${sid.slice(0, 8)}, max is 2`,
               "warn",
             );
-            (output as { block?: boolean; reason?: string }).block = true;
-            (output as { block?: boolean; reason?: string }).reason = reason;
+            // Undo the pending spawn we just pushed before throwing
             queue.pop();
             if (queue.length === 0) {
-              pendingSubagentSpawns.delete(sidForAgentBlock);
+              pendingSubagentSpawns.delete(sid);
             }
-            return;
+            throw new Error(reason);
           }
         }
       }
 
       // ── Skill/Task invocation logging (proves native OC tools are called) ──
-      const toolNameBefore = String(input.tool ?? input.toolName ?? "");
-      const sidBefore = String(input.sessionID ?? input.sessionId ?? "");
-      const argsBefore = (input.args ?? input.input ?? {}) as Record<string, unknown>;
-
-      if (toolNameBefore === "skill" || toolNameBefore === "Skill") {
-        const skillName = String(argsBefore.name ?? argsBefore.skill ?? "unknown");
+      if (toolName === "skill" || toolName === "Skill") {
+        const skillName = String(args.name ?? args.skill ?? "unknown");
         fileLog(
-          `[skill-tracker] BEFORE skill invocation: name="${skillName}" session=${sidBefore.slice(0, 8)}`,
+          `[skill-tracker] BEFORE skill invocation: name="${skillName}" session=${sid.slice(0, 8)}`,
           "info",
         );
       }
 
-      if (toolNameBefore === "task" || toolNameBefore === "Task") {
-        const subagentType = String(argsBefore.subagent_type ?? argsBefore.type ?? "unknown");
-        const taskDesc = String(argsBefore.description ?? "").slice(0, 60);
+      if (toolName === "task" || toolName === "Task") {
+        const subagentType = String(args.subagent_type ?? args.type ?? "unknown");
+        const taskDesc = String(args.description ?? "").slice(0, 60);
         fileLog(
-          `[skill-tracker] BEFORE task invocation: subagent_type="${subagentType}" desc="${taskDesc}" session=${sidBefore.slice(0, 8)}`,
+          `[skill-tracker] BEFORE task invocation: subagent_type="${subagentType}" desc="${taskDesc}" session=${sid.slice(0, 8)}`,
           "info",
         );
       }
@@ -778,7 +757,12 @@ export const PaiPlugin = async (ctx: PluginInput) => {
       // Voice notification — skip TTS for raw tool names ("bash", "read", etc.)
       // to avoid distracting noise; only route desktop/Discord notifications.
       // Also skip entirely for sub-agent sessions.
-      const durationMs = typeof input.durationMs === "number" ? input.durationMs : 0;
+      //
+      // Fix 4: compute durationMs from durationMap (SDK doesn't provide it in input)
+      const callIdForAfter = String(input.callID ?? input.callId ?? "");
+      const startTime = callIdForAfter ? durationMap.get(callIdForAfter) : undefined;
+      const durationMs = startTime !== undefined ? Date.now() - startTime : 0;
+      if (callIdForAfter) durationMap.delete(callIdForAfter);
       const summary = String(input.tool ?? input.toolName ?? "tool completed");
       const sidForVoice = String(input.sessionID ?? input.sessionId ?? "");
       if (!isKnownSubagent(sidForVoice)) {
@@ -852,6 +836,8 @@ export const PaiPlugin = async (ctx: PluginInput) => {
 
     // ── chat.message ─────────────────────────────────────────
     "chat.message": async (input: Record<string, unknown>, output: Record<string, unknown>) => {
+      fileLog(`[chat.message] hook fired: sessionID=${String(input.sessionID ?? input.sessionId ?? "(none)")} messageID=${String(input.messageID ?? "(none)")}`, "debug");
+
       const sid = String(input.sessionID ?? input.sessionId ?? "");
 
       // output.message contains the UserMessage with role and content (real SDK signature).
@@ -925,19 +911,6 @@ export const PaiPlugin = async (ctx: PluginInput) => {
       safeHandler("sentiment.implicit", () =>
         implicitSentimentHandler(sid, content),
       );
-
-      // Plan mode message handler — detect activation/deactivation
-      const wasPlanActive = safeHandler("planMode.checkBefore", () => isPlanModeActive(sid));
-      safeHandler("planMode.message", () => planModeMessageHandler(sid, content));
-      const isPlanActiveNow = safeHandler("planMode.checkAfter", () => isPlanModeActive(sid));
-
-      // Propagate plan mode changes to terminal-ui and statusline-writer
-      if (wasPlanActive !== isPlanActiveNow) {
-        if (isPlanActiveNow) {
-          safeHandler("terminal.planMode", () => onPlanModeActivated());
-        }
-        safeHandler("statusline.planMode", () => statuslinePlanModeChange(sid, !!isPlanActiveNow));
-      }
 
       // Statusline message count — only count assistant messages to avoid
       // double-counting (chat.message fires for both user and assistant)
@@ -1179,7 +1152,6 @@ export const PaiPlugin = async (ctx: PluginInput) => {
         if (sid) {
           safeHandler("cleanup.context", () => clearContextCache(sid));
           safeHandler("cleanup.learning", () => clearLearningState(sid));
-          safeHandler("cleanup.planMode", () => clearPlanModeState(sid));
           safeHandler("cleanup.compaction", () => clearCompactionState(sid));
           safeHandler("cleanup.dedup", () => clearSessionDedup(sid));
           safeHandler("cleanup.fallbackState", () => clearFallbackState(sid));
@@ -1204,5 +1176,12 @@ export function healthCheck(): { status: "ok"; plugin: string; version: string }
   return { status: "ok", plugin: PLUGIN_NAME, version: PLUGIN_VERSION };
 }
 
-// Default export is the Plugin function (what OpenCode imports)
-export default PaiPlugin;
+// V1 PluginModule format: OpenCode expects default export to be { id, server } object.
+// readV1Plugin() checks mod.default for an object with "server" key (detect mode).
+// File-based plugins ALSO require an "id" field (resolvePluginId throws without it).
+// If default export is a function (not object), OpenCode falls through to getLegacyPlugins()
+// which iterates ALL named exports and throws on any non-function export (e.g. __testInternals).
+export default {
+  id: "pai-opencode-adapter",
+  server: PaiPlugin,
+};

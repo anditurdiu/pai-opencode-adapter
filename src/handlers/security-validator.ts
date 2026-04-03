@@ -1,10 +1,7 @@
 /**
- * security-validator.ts — Two-layer security for PAI-OpenCode adapter.
+ * security-validator.ts — Input validation security for PAI-OpenCode adapter.
  *
- * Layer 1 — permissionGateHandler: permission.ask (blocking)
- *   Sets output.status = "deny" | "allow" | "ask"
- *
- * Layer 2 — inputValidationHandler: tool.execute.before (blocking)
+ * inputValidationHandler: tool.execute.before (blocking)
  *   4-step sanitization pipeline → 7-category injection detection
  *
  * MIT License — Custom implementation for PAI-OpenCode Hybrid Adapter
@@ -79,38 +76,18 @@ const INJECTION_PATTERNS: InjectionPattern[] = [
   { pattern: /\bapi[_-]?key\s*[:=]\s*\S+/i, category: "pii_credential_leak", severity: "WARN" },
 ];
 
-// ─── AllowList ────────────────────────────────────────────────────────────────
-
-const SAFE_TOOLS = new Set([
-  "read", "write", "edit", "glob", "grep", "ls",
-  "bash", "task", "webfetch", "todowrite", "lsp_diagnostics",
-]);
-
-const PROTECTED_PATHS = [
-  /\/etc\//,
-  /\/var\/log\//,
-  /\.ssh\//,
-  /\.aws\//,
-  /\.env$/,
-  /credentials/i,
-  /secret/i,
-];
-
-const DANGEROUS_COMMANDS = [
-  /rm\s+-rf\s+\//,
-  /dd\s+if=/,
-  /mkfs\./,
-  />(\/dev\/sda|\/dev\/sdb)/,
-  /:(){ :|:& };:/,
-];
-
 // ─── 4-Step Sanitization Pipeline ────────────────────────────────────────────
 
 export function sanitizeInput(text: string): string {
   let result = text;
 
   // Step 1: Decode base64 (look for large base64 blobs and decode)
+  // Guard: only attempt decoding if the string contains + or / — real base64-encoded
+  // binary data always includes these characters, while plain identifiers never do.
+  // Without this guard, long alphanumeric identifiers (e.g. "secretScrubberHandler")
+  // are incorrectly decoded into garbage bytes that trigger injection false positives.
   result = result.replace(/([A-Za-z0-9+/]{20,}={0,2})/g, (match) => {
+    if (!match.includes("+") && !match.includes("/")) return match;
     try {
       const decoded = Buffer.from(match, "base64").toString("utf-8");
       const hasControl = decoded.split("").some((ch) => {
@@ -199,83 +176,39 @@ function writeAuditEvent(
   });
 }
 
-// ─── Layer 1: Permission Gate ─────────────────────────────────────────────────
-
-export async function permissionGateHandler(
-  input: { tool?: string; args?: Record<string, unknown>; sessionID?: string },
-  output: { status: "ask" | "deny" | "allow" }
-): Promise<void> {
-  const tool = (input.tool ?? "").toLowerCase();
-  const sessionId = input.sessionID ?? "unknown";
-
-  try {
-    // Check safe tool AllowList
-    if (!SAFE_TOOLS.has(tool)) {
-      fileLog(`Permission gate: unrecognized tool "${tool}" — asking`, "warn");
-      output.status = "ask";
-      writeAuditEvent(sessionId, tool, "warned", "Unrecognized tool — asking user");
-      return;
-    }
-
-    // Check dangerous command patterns in Bash commands
-    if (tool === "bash") {
-      const cmd = String(input.args?.command ?? "");
-      for (const pat of DANGEROUS_COMMANDS) {
-        if (pat.test(cmd)) {
-          fileLog(`Permission gate: BLOCKED dangerous command: ${cmd.slice(0, 80)}`, "error");
-          output.status = "deny";
-          writeAuditEvent(sessionId, tool, "blocked", `Dangerous command: ${pat.toString()}`);
-          return;
-        }
-      }
-    }
-
-    // Check protected file paths for write/edit operations
-    if (tool === "write" || tool === "edit") {
-      const filePath = String(input.args?.file_path ?? input.args?.path ?? "");
-      for (const pat of PROTECTED_PATHS) {
-        if (pat.test(filePath)) {
-          fileLog(`Permission gate: BLOCKED write to protected path: ${filePath}`, "error");
-          output.status = "deny";
-          writeAuditEvent(sessionId, tool, "blocked", `Protected path: ${filePath}`);
-          return;
-        }
-      }
-    }
-
-    output.status = "allow";
-    writeAuditEvent(sessionId, tool, "allowed", "AllowList check passed");
-  } catch (err) {
-    fileLog(`permissionGateHandler error (fail-open): ${err}`, "error");
-    output.status = "allow";
-  }
-}
-
 // ─── Layer 2: Input Validation ─────────────────────────────────────────────────
+//
+// NOTE on SDK signature (tool.execute.before):
+//   input: { tool: string; sessionID: string; callID: string }
+//   output: { args: any }
+//
+// Args are in output.args — NOT in input. Blocking is done by throwing an Error
+// (OpenCode cancels tool execution when the hook throws). There is no output.block
+// field in the real SDK.
 
 export async function inputValidationHandler(
-  input: { tool?: string; args?: Record<string, unknown>; sessionID?: string },
-  output: { block?: boolean; reason?: string }
+  input: { tool?: string; sessionID?: string },
+  output: { args?: Record<string, unknown> | null | undefined }
 ): Promise<void> {
   const tool = input.tool ?? "unknown";
   const sessionId = input.sessionID ?? "unknown";
 
   try {
+    const args = output.args ?? {};
     const scanFields = ["command", "content", "prompt", "message", "input", "query", "text"];
 
     for (const field of scanFields) {
-      const value = input.args?.[field];
+      const value = args[field];
       if (typeof value !== "string" || value.length === 0) continue;
 
       const result = detectInjection(value);
       if (!result) continue;
 
       if (result.severity === "BLOCK") {
+        const reason = `Injection detected in field "${field}": ${result.category}`;
         fileLog(`inputValidationHandler: BLOCKED injection in field "${field}" (${result.category})`, "error");
-        output.block = true;
-        output.reason = `Injection detected in field "${field}": ${result.category}`;
-        writeAuditEvent(sessionId, tool, "blocked", output.reason, result.category);
-        return;
+        writeAuditEvent(sessionId, tool, "blocked", reason, result.category);
+        throw new Error(reason);
       }
 
       if (result.severity === "WARN") {
@@ -284,6 +217,10 @@ export async function inputValidationHandler(
       }
     }
   } catch (err) {
+    // Re-throw if this is our own BLOCK error, otherwise fail-open
+    if (err instanceof Error && err.message.startsWith("Injection detected")) {
+      throw err;
+    }
     fileLog(`inputValidationHandler error (fail-open): ${err}`, "error");
   }
 }

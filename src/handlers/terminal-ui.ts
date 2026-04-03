@@ -75,10 +75,6 @@ export function onTaskStart(taskSummary: string): void {
   updateTabColor("active");
 }
 
-export function onPlanModeActivated(): void {
-  updateTabColor("plan");
-}
-
 export function onError(): void {
   updateTabColor("error");
 }

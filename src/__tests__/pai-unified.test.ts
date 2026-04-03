@@ -1,9 +1,12 @@
 import { describe, it, expect, beforeAll, afterAll, afterEach, beforeEach } from "bun:test";
 import type { PluginInput } from "@opencode-ai/plugin";
-import PaiPlugin, {
+import PaiPluginModule, {
   healthCheck,
   __testInternals,
 } from "../plugin/pai-unified.js";
+
+// V1 PluginModule format: default export is { id, server }
+const PaiPlugin = PaiPluginModule.server;
 
 // Destructure test internals from the bundled object
 const {
@@ -40,8 +43,10 @@ beforeAll(async () => {
 });
 
 describe("plugin function", () => {
-  it("default export is a function (Plugin type)", () => {
-    expect(typeof PaiPlugin).toBe("function");
+  it("default export is V1 PluginModule { id, server }", () => {
+    expect(typeof PaiPluginModule).toBe("object");
+    expect(PaiPluginModule.id).toBe("pai-opencode-adapter");
+    expect(typeof PaiPluginModule.server).toBe("function");
   });
 
   it("returns an object when called", () => {
@@ -51,10 +56,6 @@ describe("plugin function", () => {
 });
 
 describe("hook registration", () => {
-  it("registers permission.ask hook", () => {
-    expect(typeof hooks["permission.ask"]).toBe("function");
-  });
-
   it("registers experimental.chat.system.transform hook", () => {
     expect(typeof hooks["experimental.chat.system.transform"]).toBe("function");
   });
@@ -338,11 +339,6 @@ describe("healthCheck", () => {
 });
 
 describe("error isolation — hooks do not throw on malformed input", () => {
-  it("permission.ask does not throw on empty input", async () => {
-    const fn = hooks["permission.ask"] as (i: unknown, o: unknown) => Promise<void>;
-    await expect(fn({}, {})).resolves.toBeUndefined();
-  });
-
   it("tool.execute.before does not throw on empty input", async () => {
     const fn = hooks["tool.execute.before"] as (i: unknown, o: unknown) => Promise<void>;
     await expect(fn({}, {})).resolves.toBeUndefined();
@@ -391,7 +387,7 @@ describe("error isolation — hooks do not throw on malformed input", () => {
 
 describe("hook behavior", () => {
   it("hooks are async (return promises)", async () => {
-    const fn = hooks["permission.ask"] as (i: unknown, o: unknown) => unknown;
+    const fn = hooks["tool.execute.before"] as (i: unknown, o: unknown) => unknown;
     const result = fn({}, {});
     expect(result).toBeInstanceOf(Promise);
   });
@@ -403,62 +399,18 @@ describe("hook behavior", () => {
   });
 });
 
-describe("permission.ask — external_directory auto-allow", () => {
-  const home = process.env.HOME ?? "";
-  const fn = () => hooks["permission.ask"] as (i: unknown, o: unknown) => Promise<void>;
-
-  it("auto-allows ~/.claude/ paths", async () => {
-    const output: { status?: string } = {};
-    await fn()({ permission: "external_directory", patterns: [`${home}/.claude/PAI/Algorithm/*`] }, output);
-    expect(output.status).toBe("allow");
-  });
-
-  it("auto-allows ~/.config/opencode/ paths", async () => {
-    const output: { status?: string } = {};
-    await fn()({ permission: "external_directory", patterns: [`${home}/.config/opencode/agents/*`] }, output);
-    expect(output.status).toBe("allow");
-  });
-
-  it("auto-allows ~/.config/opencode/ root path", async () => {
-    const output: { status?: string } = {};
-    await fn()({ permission: "external_directory", patterns: [`${home}/.config/opencode/*`] }, output);
-    expect(output.status).toBe("allow");
-  });
-
-  it("does NOT auto-allow unknown external directories", async () => {
-    const output: { status?: string } = {};
-    await fn()({ permission: "external_directory", patterns: ["/tmp/some-random-dir/*"] }, output);
-    expect(output.status).toBeUndefined();
-  });
-
-  it("does NOT auto-allow if ANY pattern is outside PAI paths", async () => {
-    const output: { status?: string } = {};
-    await fn()({
-      permission: "external_directory",
-      patterns: [`${home}/.claude/PAI/*`, "/etc/shadow/*"],
-    }, output);
-    expect(output.status).not.toBe("allow");
-  });
-
-  it("does not interfere with empty patterns array", async () => {
-    const output: { status?: string } = {};
-    await fn()({ permission: "external_directory", patterns: [] }, output);
-    expect(output.status).toBeUndefined();
-  });
-});
-
 describe("skill invocation logging", () => {
   it("tool.execute.before does not throw when tool is 'skill'", async () => {
     const fn = hooks["tool.execute.before"] as (i: unknown, o: unknown) => Promise<void>;
     await expect(
-      fn({ tool: "skill", sessionID: "test-skill-session", args: { name: "Research" } }, {}),
+      fn({ tool: "skill", sessionID: "test-skill-session" }, { args: { name: "Research" } }),
     ).resolves.toBeUndefined();
   });
 
   it("tool.execute.before does not throw when tool is 'Skill' (capitalized)", async () => {
     const fn = hooks["tool.execute.before"] as (i: unknown, o: unknown) => Promise<void>;
     await expect(
-      fn({ tool: "Skill", sessionID: "test-skill-session", args: { name: "FirstPrinciples" } }, {}),
+      fn({ tool: "Skill", sessionID: "test-skill-session" }, { args: { name: "FirstPrinciples" } }),
     ).resolves.toBeUndefined();
   });
 
@@ -503,8 +455,7 @@ describe("task invocation logging", () => {
       fn({
         tool: "task",
         sessionID: "test-task-session",
-        args: { subagent_type: "engineer", description: "Build feature X" },
-      }, {}),
+      }, { args: { subagent_type: "engineer", description: "Build feature X" } }),
     ).resolves.toBeUndefined();
   });
 
@@ -514,8 +465,7 @@ describe("task invocation logging", () => {
       fn({
         tool: "Task",
         sessionID: "test-task-session",
-        args: { subagent_type: "research", description: "Research topic" },
-      }, {}),
+      }, { args: { subagent_type: "research", description: "Research topic" } }),
     ).resolves.toBeUndefined();
   });
 
@@ -558,7 +508,7 @@ describe("task invocation logging", () => {
   it("non-skill non-task tools do not trigger skill-tracker logging (no throw)", async () => {
     const fn = hooks["tool.execute.before"] as (i: unknown, o: unknown) => Promise<void>;
     await expect(
-      fn({ tool: "bash", sessionID: "test-session", args: { command: "ls" } }, {}),
+      fn({ tool: "bash", sessionID: "test-session" }, { args: { command: "ls" } }),
     ).resolves.toBeUndefined();
   });
 });
@@ -580,12 +530,11 @@ describe("subagent Task tool blocking", () => {
 
   it("allows Task tool for subagent session (registers pending spawn)", async () => {
     const fn = hooks["tool.execute.before"] as (i: unknown, o: unknown) => Promise<void>;
-    const output: { block?: boolean; reason?: string } = {};
+    const output: Record<string, unknown> = { args: { subagent_type: "explorer", description: "test" } };
     await fn(
-      { tool: "Task", sessionID: subagentSid, args: { subagent_type: "explorer", description: "test" } },
+      { tool: "Task", sessionID: subagentSid },
       output,
     );
-    expect(output.block).toBeUndefined();
     // Should register a pending spawn since Task is now allowed for subagents
     const pending = _pendingSubagentSpawnsForTest.get(subagentSid);
     expect(pending).toBeDefined();
@@ -596,46 +545,35 @@ describe("subagent Task tool blocking", () => {
 
   it("allows task tool (lowercase) for subagent session", async () => {
     const fn = hooks["tool.execute.before"] as (i: unknown, o: unknown) => Promise<void>;
-    const output: { block?: boolean; reason?: string } = {};
     await fn(
-      { tool: "task", sessionID: subagentSid, args: { subagent_type: "intern" } },
-      output,
+      { tool: "task", sessionID: subagentSid },
+      { args: { subagent_type: "intern" } },
     );
-    expect(output.block).toBeUndefined();
     // Clean up
     _pendingSubagentSpawnsForTest.delete(subagentSid);
   });
 
   it("does NOT block Skill tool for subagent session", async () => {
     const fn = hooks["tool.execute.before"] as (i: unknown, o: unknown) => Promise<void>;
-    const output: { block?: boolean; reason?: string } = {};
-    await fn(
-      { tool: "Skill", sessionID: subagentSid, args: { name: "Research" } },
-      output,
-    );
-    expect(output.block).toBeUndefined();
+    await expect(
+      fn({ tool: "Skill", sessionID: subagentSid }, { args: { name: "Research" } }),
+    ).resolves.toBeUndefined();
   });
 
   it("does NOT block skill tool (lowercase) for subagent session", async () => {
     const fn = hooks["tool.execute.before"] as (i: unknown, o: unknown) => Promise<void>;
-    const output: { block?: boolean; reason?: string } = {};
-    await fn(
-      { tool: "skill", sessionID: subagentSid, args: { name: "FirstPrinciples" } },
-      output,
-    );
-    expect(output.block).toBeUndefined();
+    await expect(
+      fn({ tool: "skill", sessionID: subagentSid }, { args: { name: "FirstPrinciples" } }),
+    ).resolves.toBeUndefined();
   });
 
   it("Task from subagent session registers pending spawn for sub-subagent detection", async () => {
     const fn = hooks["tool.execute.before"] as (i: unknown, o: unknown) => Promise<void>;
-    const output: { block?: boolean; reason?: string } = {};
     await fn(
-      { tool: "Task", sessionID: subagentSid, args: { subagent_type: "explorer" } },
-      output,
+      { tool: "Task", sessionID: subagentSid },
+      { args: { subagent_type: "explorer" } },
     );
-    // Task is now allowed for subagents — no block
-    expect(output.block).toBeUndefined();
-    // Pending spawn should be registered for sub-subagent tracking
+    // Task is now allowed for subagents — pending spawn should be registered
     const pending = _pendingSubagentSpawnsForTest.get(subagentSid);
     expect(pending).toBeDefined();
     expect(pending!.length).toBeGreaterThanOrEqual(1);
@@ -646,22 +584,16 @@ describe("subagent Task tool blocking", () => {
 
   it("does NOT block Task tool for primary (non-subagent) session", async () => {
     const fn = hooks["tool.execute.before"] as (i: unknown, o: unknown) => Promise<void>;
-    const output: { block?: boolean; reason?: string } = {};
-    await fn(
-      { tool: "Task", sessionID: "primary-session-xyz", args: { subagent_type: "engineer" } },
-      output,
-    );
-    expect(output.block).toBeUndefined();
+    await expect(
+      fn({ tool: "Task", sessionID: "primary-session-xyz" }, { args: { subagent_type: "engineer" } }),
+    ).resolves.toBeUndefined();
   });
 
   it("does NOT block bash tool for subagent session (non-voice)", async () => {
     const fn = hooks["tool.execute.before"] as (i: unknown, o: unknown) => Promise<void>;
-    const output: { block?: boolean; reason?: string } = {};
-    await fn(
-      { tool: "bash", sessionID: subagentSid, args: { command: "ls -la" } },
-      output,
-    );
-    expect(output.block).toBeUndefined();
+    await expect(
+      fn({ tool: "bash", sessionID: subagentSid }, { args: { command: "ls -la" } }),
+    ).resolves.toBeUndefined();
   });
 });
 
@@ -731,8 +663,8 @@ describe("Task-call timing registry — subagent detection", () => {
 
   it("Task tool.execute.before registers pending spawn for primary session", async () => {
     await toolBeforeFn()(
-      { tool: "Task", sessionID: "primary-timing-test", args: { subagent_type: "engineer" } },
-      {},
+      { tool: "Task", sessionID: "primary-timing-test" },
+      { args: { subagent_type: "engineer" } },
     );
     const pending = _pendingSubagentSpawnsForTest.get("primary-timing-test");
     expect(pending).toBeDefined();
@@ -743,8 +675,8 @@ describe("Task-call timing registry — subagent detection", () => {
   it("session.created after Task call registers new session as subagent", async () => {
     // Fire Task from primary session
     await toolBeforeFn()(
-      { tool: "Task", sessionID: "primary-timing-abc", args: { subagent_type: "engineer" } },
-      {},
+      { tool: "Task", sessionID: "primary-timing-abc" },
+      { args: { subagent_type: "engineer" } },
     );
     // Fire session.created for the newly spawned session
     await eventFn()({
@@ -761,8 +693,8 @@ describe("Task-call timing registry — subagent detection", () => {
     _pendingSubagentSpawnsForTest.delete("primary-timing-abc");
     // Fire Task from primary session to queue a pending spawn
     await toolBeforeFn()(
-      { tool: "Task", sessionID: "primary-timing-abc", args: { subagent_type: "engineer" } },
-      {},
+      { tool: "Task", sessionID: "primary-timing-abc" },
+      { args: { subagent_type: "engineer" } },
     );
     // Fire session.created to consume it
     await eventFn()({
@@ -782,8 +714,8 @@ describe("Task-call timing registry — subagent detection", () => {
     _subagentSessionsForTest.add(subSid);
     try {
       await toolBeforeFn()(
-        { tool: "Task", sessionID: subSid, args: { subagent_type: "explorer" } },
-        {},
+        { tool: "Task", sessionID: subSid },
+        { args: { subagent_type: "explorer" } },
       );
       // Subagent Task calls now register pending spawns for sub-subagent tracking
       const pending = _pendingSubagentSpawnsForTest.get(subSid);
@@ -798,12 +730,12 @@ describe("Task-call timing registry — subagent detection", () => {
 
   it("multiple Task calls queue multiple pending spawns", async () => {
     await toolBeforeFn()(
-      { tool: "Task", sessionID: "primary-timing-multi", args: { subagent_type: "engineer" } },
-      {},
+      { tool: "Task", sessionID: "primary-timing-multi" },
+      { args: { subagent_type: "engineer" } },
     );
     await toolBeforeFn()(
-      { tool: "Task", sessionID: "primary-timing-multi", args: { subagent_type: "explorer" } },
-      {},
+      { tool: "Task", sessionID: "primary-timing-multi" },
+      { args: { subagent_type: "explorer" } },
     );
     const pending = _pendingSubagentSpawnsForTest.get("primary-timing-multi");
     expect(pending).toBeDefined();
@@ -813,12 +745,12 @@ describe("Task-call timing registry — subagent detection", () => {
   it("multiple spawned sessions consume pending spawns in FIFO order", async () => {
     // Queue two pending spawns from the same primary session
     await toolBeforeFn()(
-      { tool: "Task", sessionID: "primary-timing-fifo", args: { subagent_type: "engineer" } },
-      {},
+      { tool: "Task", sessionID: "primary-timing-fifo" },
+      { args: { subagent_type: "engineer" } },
     );
     await toolBeforeFn()(
-      { tool: "Task", sessionID: "primary-timing-fifo", args: { subagent_type: "explorer" } },
-      {},
+      { tool: "Task", sessionID: "primary-timing-fifo" },
+      { args: { subagent_type: "explorer" } },
     );
     // Two session.created events consume both pending entries
     await eventFn()({
@@ -899,12 +831,10 @@ describe("max concurrent subagent guard", () => {
 
   it("allows first two Task calls from the same session", async () => {
     // First Task call
-    const output1: Record<string, unknown> = {};
     await toolBeforeFn()(
-      { tool: "Task", sessionID: parentSid, args: { subagent_type: "engineer", description: "Build feature" } },
-      output1,
+      { tool: "Task", sessionID: parentSid },
+      { args: { subagent_type: "engineer", description: "Build feature" } },
     );
-    expect(output1.block).toBeUndefined();
 
     // Simulate the first subagent being created
     await eventFn()({
@@ -913,12 +843,10 @@ describe("max concurrent subagent guard", () => {
     expect(_subagentTrackingForTest.has("conc-sub-1")).toBe(true);
 
     // Second Task call
-    const output2: Record<string, unknown> = {};
     await toolBeforeFn()(
-      { tool: "Task", sessionID: parentSid, args: { subagent_type: "explorer", description: "Search codebase" } },
-      output2,
+      { tool: "Task", sessionID: parentSid },
+      { args: { subagent_type: "explorer", description: "Search codebase" } },
     );
-    expect(output2.block).toBeUndefined();
 
     // Simulate the second subagent being created
     await eventFn()({
@@ -946,16 +874,19 @@ describe("max concurrent subagent guard", () => {
       stallWarned: false,
     });
 
-    // Third Task call should be blocked
-    const output3: Record<string, unknown> = {};
-    await toolBeforeFn()(
-      { tool: "Task", sessionID: parentSid, args: { subagent_type: "thinker", description: "Analyze approach" } },
-      output3,
-    );
-    expect(output3.block).toBe(true);
-    expect(typeof output3.reason).toBe("string");
-    expect((output3.reason as string)).toContain("Max concurrent subagent limit");
-    expect((output3.reason as string)).toContain("known OpenCode bug");
+    // Third Task call should throw (blocked)
+    await expect(
+      toolBeforeFn()(
+        { tool: "Task", sessionID: parentSid },
+        { args: { subagent_type: "thinker", description: "Analyze approach" } },
+      )
+    ).rejects.toThrow(/Max concurrent subagent limit/);
+    await expect(
+      toolBeforeFn()(
+        { tool: "Task", sessionID: parentSid },
+        { args: { subagent_type: "thinker", description: "Analyze approach" } },
+      )
+    ).rejects.toThrow(/known OpenCode bug/);
   });
 
   it("does NOT block Task calls from a different session even if another session has 2 active", async () => {
@@ -979,12 +910,12 @@ describe("max concurrent subagent guard", () => {
 
     // Task call from a DIFFERENT session should NOT be blocked
     const otherSid = "other-session-conc-test";
-    const output: Record<string, unknown> = {};
-    await toolBeforeFn()(
-      { tool: "Task", sessionID: otherSid, args: { subagent_type: "intern", description: "Simple task" } },
-      output,
-    );
-    expect(output.block).toBeUndefined();
+    await expect(
+      toolBeforeFn()(
+        { tool: "Task", sessionID: otherSid },
+        { args: { subagent_type: "intern", description: "Simple task" } },
+      )
+    ).resolves.toBeUndefined();
 
     // Clean up
     _pendingSubagentSpawnsForTest.delete(otherSid);
@@ -1016,12 +947,12 @@ describe("max concurrent subagent guard", () => {
     });
 
     // Now only 1 active subagent — the next Task call should succeed
-    const output: Record<string, unknown> = {};
-    await toolBeforeFn()(
-      { tool: "Task", sessionID: parentSid, args: { subagent_type: "thinker", description: "Analyze" } },
-      output,
-    );
-    expect(output.block).toBeUndefined();
+    await expect(
+      toolBeforeFn()(
+        { tool: "Task", sessionID: parentSid },
+        { args: { subagent_type: "thinker", description: "Analyze" } },
+      )
+    ).resolves.toBeUndefined();
   });
 
 });
@@ -1122,8 +1053,8 @@ describe("subagent activity tracking — lastActivityAt updates", () => {
   beforeEach(async () => {
     // Set up: spawn a subagent via the timing registry
     await toolBeforeFn()(
-      { tool: "Task", sessionID: primarySid, args: { subagent_type: "engineer", description: "Build" } },
-      {},
+      { tool: "Task", sessionID: primarySid },
+      { args: { subagent_type: "engineer", description: "Build" } },
     );
     await eventFn()({
       event: { type: "session.created", properties: { info: { id: subSid } } },
@@ -1457,9 +1388,8 @@ describe("subagent tracking registration on session.created", () => {
       {
         tool: "Task",
         sessionID: primarySid,
-        args: { subagent_type: "architect", description: "Design the API" },
       },
-      {},
+      { args: { subagent_type: "architect", description: "Design the API" } },
     );
     await eventFn()({
       event: { type: "session.created", properties: { info: { id: subSid } } },
@@ -1478,9 +1408,8 @@ describe("subagent tracking registration on session.created", () => {
       {
         tool: "Task",
         sessionID: primarySid,
-        args: { subagent_type: "explorer", description: longDesc },
       },
-      {},
+      { args: { subagent_type: "explorer", description: longDesc } },
     );
     await eventFn()({
       event: { type: "session.created", properties: { info: { id: subSid } } },

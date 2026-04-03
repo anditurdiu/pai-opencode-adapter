@@ -132,8 +132,15 @@ function findAffectedHandlers(event: string): string[] {
     "permission.ask": ["security-validator"],
     "chat.message": ["learning-tracker", "compaction-handler"],
     "experimental.chat.system.transform": ["context-loader", "session-lifecycle"],
+    "experimental.chat.messages.transform": ["secret-scrubber"],
     "experimental.session.compacting": ["compaction-handler"],
     "event": ["session-lifecycle", "compaction-handler"],
+    // chat.params — DEFERRED. Evaluated 2026-04-04.
+    // SDK signature: input { sessionID, agent, model, provider, message }
+    //                output { temperature, topP, topK, options }
+    // Viable for dynamic per-agent temperature overrides at runtime.
+    // Not implemented yet — adapter-level temperature is set statically via
+    // definitions.ts. Implement here when dynamic temperature is needed.
   };
   return mapping[event] ?? [];
 }

@@ -6,7 +6,6 @@ import {
   onSessionStart,
   onMessageReceived,
   onPhaseChange,
-  onPlanModeChange,
   onToolExecuted,
   onSessionEnd,
   getStatus,
@@ -157,23 +156,6 @@ describe("statusline-writer", () => {
       onPhaseChange(TEST_SESSION, "verify");
       const data = readStatusFile(SESSION_FILE);
       expect(data!.phase).toBe("VERIFY");
-    });
-  });
-
-  describe("onPlanModeChange", () => {
-    it("sets planMode to true", () => {
-      onSessionStart(TEST_SESSION);
-      onPlanModeChange(TEST_SESSION, true);
-      const status = getStatus(TEST_SESSION);
-      expect(status?.planMode).toBe(true);
-    });
-
-    it("sets planMode to false", () => {
-      onSessionStart(TEST_SESSION);
-      onPlanModeChange(TEST_SESSION, true);
-      onPlanModeChange(TEST_SESSION, false);
-      const status = getStatus(TEST_SESSION);
-      expect(status?.planMode).toBe(false);
     });
   });
 
