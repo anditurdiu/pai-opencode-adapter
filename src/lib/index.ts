@@ -11,7 +11,6 @@ export * from "./identity.js";
 export * from "./time.js";
 export * from "./change-detection.js";
 export * from "./model-resolver.js";
-export * from "./agent-model-sync.js";
 export * from "./tab-constants.js";
 export * from "./tab-setter.js";
 // paths.ts: re-export selectively to avoid conflicts with time.ts

@@ -285,7 +285,7 @@ describe("skill tool execute — subagent permission context injection", () => {
   const subagentSessionId = "subagent-research-session-001";
 
   beforeEach(() => {
-    registerSubagentType(subagentSessionId, "research");
+    registerSubagentType(subagentSessionId, "GeminiResearcher");
   });
 
   afterEach(() => {
@@ -306,7 +306,7 @@ describe("skill tool execute — subagent permission context injection", () => {
 
     // Should contain the appended permission context
     expect(result).toContain("OpenCode Adaptation Notes");
-    expect(result).toContain("research agent");
+    expect(result).toContain("GeminiResearcher agent");
     expect(result).toContain("Available Tools");
   });
 
@@ -326,7 +326,7 @@ describe("skill tool execute — subagent permission context injection", () => {
     expect(result).not.toContain("OpenCode Adaptation Notes");
   });
 
-  it("includes agent type mapping table in appended context", async () => {
+  it("includes permission tool table in appended context", async () => {
     const skillPath = resolveSkillPath("Research");
     if (skillPath === null) return;
 
@@ -334,9 +334,9 @@ describe("skill tool execute — subagent permission context injection", () => {
     const ctx = mockCtxForSession(subagentSessionId);
     const result = await toolDef.execute({ name: "Research" }, ctx);
 
-    expect(result).toContain("Agent Type Mapping");
-    expect(result).toContain("ClaudeResearcher");
-    expect(result).toContain("GeminiResearcher");
+    expect(result).toContain("Available Tools");
+    expect(result).toContain("GeminiResearcher agent");
+    expect(result).toContain("task (spawn)");
   });
 
   it("includes tool availability table with correct permissions for research", async () => {
@@ -374,24 +374,24 @@ describe("skill tool execute — subagent permission context injection", () => {
     expect(afterSeparator).toContain("OpenCode Adaptation Notes");
   });
 
-  it("works correctly for thinker agent type", async () => {
-    const thinkerSessionId = "subagent-thinker-session-001";
-    registerSubagentType(thinkerSessionId, "thinker");
+  it("works correctly for Architect agent type", async () => {
+    const architectSessionId = "subagent-architect-session-001";
+    registerSubagentType(architectSessionId, "Architect");
 
     const skillPath = resolveSkillPath("Research");
     if (skillPath === null) {
-      clearSubagentType(thinkerSessionId);
+      clearSubagentType(architectSessionId);
       return;
     }
 
     const toolDef = createSkillTool();
-    const ctx = mockCtxForSession(thinkerSessionId);
+    const ctx = mockCtxForSession(architectSessionId);
     const result = await toolDef.execute({ name: "Research" }, ctx);
 
-    expect(result).toContain("thinker agent");
+    expect(result).toContain("Architect agent");
     expect(result).toContain("OpenCode Adaptation Notes");
 
-    clearSubagentType(thinkerSessionId);
+    clearSubagentType(architectSessionId);
   });
 
   it("does not append context for list mode even with subagent session", async () => {
@@ -406,54 +406,38 @@ describe("skill tool execute — subagent permission context injection", () => {
 });
 
 // ── research agent curl allow rule ────────────────────────────────────────
+// These tests verify that agent definitions contain the correct curl allow
+// rules in their bash permissions. Previously checked .md files; now checks
+// in-memory AGENT_DEFINITIONS since .md files have been eliminated.
 
-describe("research agent curl allow rule", () => {
-  const agentConfigPath = join(
-    process.env.HOME ?? "",
-    ".config",
-    "opencode",
-    "agents",
-    "research.md",
-  );
+import { AGENT_DEFINITIONS } from "../agents/definitions.js";
 
-  it("research.md exists", () => {
-    expect(existsSync(agentConfigPath)).toBe(true);
+describe("PAI agent curl allow rule", () => {
+  it("GeminiResearcher agent definition exists", () => {
+    expect(AGENT_DEFINITIONS.GeminiResearcher).toBeDefined();
   });
 
-  it("research.md contains curl allow rule in bash permissions", () => {
-    const content = readFileSync(agentConfigPath, "utf-8");
-    // Should contain "curl *": allow pattern
-    expect(content).toContain('"curl *": allow');
+  it("GeminiResearcher agent contains curl allow rule in bash permissions", () => {
+    const bashPerms = AGENT_DEFINITIONS.GeminiResearcher!.permission.bash;
+    expect(typeof bashPerms).toBe("object");
+    expect((bashPerms as Record<string, string>)["curl *"]).toBe("allow");
   });
 
-  it("research.md retains default deny for unwhitelisted bash", () => {
-    const content = readFileSync(agentConfigPath, "utf-8");
-    expect(content).toContain('"*": deny');
+  it("GeminiResearcher agent retains default deny for unwhitelisted bash", () => {
+    const bashPerms = AGENT_DEFINITIONS.GeminiResearcher!.permission.bash;
+    expect(typeof bashPerms).toBe("object");
+    expect((bashPerms as Record<string, string>)["*"]).toBe("deny");
   });
 
-  it("thinker.md contains curl allow rule", () => {
-    const thinkerPath = join(
-      process.env.HOME ?? "",
-      ".config",
-      "opencode",
-      "agents",
-      "thinker.md",
-    );
-    if (!existsSync(thinkerPath)) return;
-    const content = readFileSync(thinkerPath, "utf-8");
-    expect(content).toContain('"curl *": allow');
+  it("GrokResearcher agent contains curl allow rule", () => {
+    const bashPerms = AGENT_DEFINITIONS.GrokResearcher?.permission.bash;
+    if (!bashPerms || typeof bashPerms !== "object") return;
+    expect((bashPerms as Record<string, string>)["curl *"]).toBe("allow");
   });
 
-  it("architect.md contains curl allow rule", () => {
-    const architectPath = join(
-      process.env.HOME ?? "",
-      ".config",
-      "opencode",
-      "agents",
-      "architect.md",
-    );
-    if (!existsSync(architectPath)) return;
-    const content = readFileSync(architectPath, "utf-8");
-    expect(content).toContain('"curl *": allow');
+  it("Architect agent does NOT contain curl allow rule", () => {
+    const bashPerms = AGENT_DEFINITIONS.Architect?.permission.bash;
+    expect(typeof bashPerms).toBe("object");
+    expect((bashPerms as Record<string, string>)["curl *"]).toBeUndefined();
   });
 });

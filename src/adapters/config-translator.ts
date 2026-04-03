@@ -12,6 +12,7 @@
 import { existsSync, mkdirSync, readFileSync, watch, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { fileLog } from "../lib/file-logger.js";
+import { AGENT_NAMES } from "../agents/definitions.js";
 
 /**
  * PAI settings.json shape
@@ -137,7 +138,14 @@ export interface PAIAdapterConfig {
   paiDir?: string;
   pluginDir?: string;
   model_provider?: ProviderType;
-  models?: ProviderModels;
+  models?: {
+    default?: string;
+    validation?: string;
+  };
+  /** Flat 1:1 agent-name → { model } mapping. No role indirection. */
+  agents?: Record<string, { model?: string }>;
+  /** Per-agent fallback chains. Keys are agent names, plus "default". */
+  fallbacks?: Record<string, string[]>;
   identity?: {
     aiName?: string;
     aiFullName?: string;
@@ -174,24 +182,17 @@ export type ProviderType = "zen" | "anthropic" | "openai" | "google" | "ollama";
 export interface ProviderModels {
   default: string;
   validation?: string;
-  agents?: {
-    intern?: string;
-    architect?: string;
-    engineer?: string;
-    explorer?: string;
-    reviewer?: string;
-  };
   /**
-   * Per-role fallback chains. When a primary model fails (rate limit, not found,
+   * Agent model assignments. Keys are agent names (1:1 mapping).
+   * Used internally by model-resolver for compatibility with
+   * checkSubagentHealth, getAlternativeAgentTypes, etc.
+   */
+  agents?: Record<string, string>;
+  /**
+   * Per-agent fallback chains. When a primary model fails (rate limit, not found,
    * unavailable), the adapter suggests the next model in the chain.
-   * Keys are role names (default, intern, architect, etc.).
+   * Keys are agent names (1:1 mapping) or "default".
    * Values are ordered arrays of fallback model strings.
-   *
-   * @example
-   * {
-   *   "default": ["openai/gpt-4o", "google/gemini-2.5-pro"],
-   *   "intern": ["openai/gpt-4o-mini", "google/gemini-flash"]
-   * }
    */
   fallbacks?: Record<string, string[]>;
 }
@@ -201,55 +202,80 @@ const PROVIDER_PRESETS: Record<ProviderType, ProviderModels> = {
     default: "opencode/grok-code",
     validation: "opencode/grok-code",
     agents: {
-      intern: "opencode/gpt-5-nano",
-      architect: "opencode/big-pickle",
-      engineer: "opencode/grok-code",
-      explorer: "opencode/grok-code",
-      reviewer: "opencode/big-pickle",
+      Architect: "opencode/big-pickle",
+      Artist: "opencode/grok-code",
+      ClaudeResearcher: "opencode/grok-code",
+      CodexResearcher: "opencode/grok-code",
+      Designer: "opencode/grok-code",
+      Engineer: "opencode/grok-code",
+      GeminiResearcher: "opencode/grok-code",
+      GrokResearcher: "opencode/grok-code",
+      PerplexityResearcher: "opencode/grok-code",
+      QATester: "opencode/grok-code",
     },
   },
   anthropic: {
     default: "anthropic/claude-sonnet-4-5",
     validation: "anthropic/claude-sonnet-4-5",
     agents: {
-      intern: "anthropic/claude-haiku-4-5",
-      architect: "anthropic/claude-sonnet-4-5",
-      engineer: "anthropic/claude-sonnet-4-5",
-      explorer: "anthropic/claude-sonnet-4-5",
-      reviewer: "anthropic/claude-opus-4-5",
+      Architect: "anthropic/claude-opus-4-5",
+      Artist: "anthropic/claude-sonnet-4-5",
+      ClaudeResearcher: "anthropic/claude-sonnet-4-5",
+      CodexResearcher: "anthropic/claude-sonnet-4-5",
+      Designer: "anthropic/claude-sonnet-4-5",
+      Engineer: "anthropic/claude-sonnet-4-5",
+      GeminiResearcher: "anthropic/claude-sonnet-4-5",
+      GrokResearcher: "anthropic/claude-sonnet-4-5",
+      PerplexityResearcher: "anthropic/claude-sonnet-4-5",
+      QATester: "anthropic/claude-sonnet-4-5",
     },
   },
   openai: {
     default: "openai/gpt-4o",
     validation: "openai/gpt-4o",
     agents: {
-      intern: "openai/gpt-4o-mini",
-      architect: "openai/gpt-4o",
-      engineer: "openai/gpt-4o",
-      explorer: "openai/gpt-4o",
-      reviewer: "openai/gpt-4o",
+      Architect: "openai/gpt-4o",
+      Artist: "openai/gpt-4o",
+      ClaudeResearcher: "openai/gpt-4o",
+      CodexResearcher: "openai/gpt-4o",
+      Designer: "openai/gpt-4o",
+      Engineer: "openai/gpt-4o",
+      GeminiResearcher: "openai/gpt-4o",
+      GrokResearcher: "openai/gpt-4o",
+      PerplexityResearcher: "openai/gpt-4o",
+      QATester: "openai/gpt-4o",
     },
   },
   google: {
     default: "google/gemini-pro",
     validation: "google/gemini-pro",
     agents: {
-      intern: "google/gemini-flash",
-      architect: "google/gemini-pro",
-      engineer: "google/gemini-pro",
-      explorer: "google/gemini-flash",
-      reviewer: "google/gemini-pro",
+      Architect: "google/gemini-pro",
+      Artist: "google/gemini-flash",
+      ClaudeResearcher: "google/gemini-flash",
+      CodexResearcher: "google/gemini-flash",
+      Designer: "google/gemini-flash",
+      Engineer: "google/gemini-pro",
+      GeminiResearcher: "google/gemini-flash",
+      GrokResearcher: "google/gemini-flash",
+      PerplexityResearcher: "google/gemini-flash",
+      QATester: "google/gemini-flash",
     },
   },
   ollama: {
     default: "ollama/llama3",
     validation: "ollama/llama3",
     agents: {
-      intern: "ollama/llama3",
-      architect: "ollama/llama3",
-      engineer: "ollama/llama3",
-      explorer: "ollama/llama3",
-      reviewer: "ollama/llama3",
+      Architect: "ollama/llama3",
+      Artist: "ollama/llama3",
+      ClaudeResearcher: "ollama/llama3",
+      CodexResearcher: "ollama/llama3",
+      Designer: "ollama/llama3",
+      Engineer: "ollama/llama3",
+      GeminiResearcher: "ollama/llama3",
+      GrokResearcher: "ollama/llama3",
+      PerplexityResearcher: "ollama/llama3",
+      QATester: "ollama/llama3",
     },
   },
 };
@@ -332,26 +358,50 @@ export function translateConfig(
   const preset = getProviderPreset(provider);
 
   // Build adapter config (pai-adapter.json)
-  // Deep-merge: user model overrides > provider presets, with fallbacks preserved
+  // Deep-merge: user model overrides > provider presets
   const userModels = baseAdapterConfig.models;
-  const mergedModels: ProviderModels = {
+  const mergedModels: { default: string; validation?: string } = {
     default: userModels?.default ?? preset.default,
     validation: userModels?.validation ?? preset.validation,
-    agents: {
-      intern: userModels?.agents?.intern ?? preset.agents?.intern,
-      architect: userModels?.agents?.architect ?? preset.agents?.architect,
-      engineer: userModels?.agents?.engineer ?? preset.agents?.engineer,
-      explorer: userModels?.agents?.explorer ?? preset.agents?.explorer,
-      reviewer: userModels?.agents?.reviewer ?? preset.agents?.reviewer,
-    },
-    // Fallbacks come from user config only — presets don't define them
-    ...(userModels?.fallbacks && { fallbacks: userModels.fallbacks }),
   };
+
+  // Build flat agents section from existing adapter config agents or preset.
+  // Auto-discovered agents not in the preset get the provider's default model.
+  const existingAgents = baseAdapterConfig.agents ?? {};
+  const presetAgents = preset.agents ?? {};
+  const mergedAgents: Record<string, { model?: string }> = {};
+
+  // Start with preset agents
+  for (const [name, model] of Object.entries(presetAgents)) {
+    mergedAgents[name] = { model: existingAgents[name]?.model ?? model };
+  }
+
+  // Include any user-defined agents not in preset
+  for (const [name, entry] of Object.entries(existingAgents)) {
+    if (!mergedAgents[name] && entry?.model) {
+      mergedAgents[name] = { model: entry.model };
+    }
+  }
+
+  // Include auto-discovered agents not yet in the merged set.
+  // This ensures newly discovered PAI agents get a model assignment
+  // even if they aren't in PROVIDER_PRESETS yet.
+  for (const name of AGENT_NAMES) {
+    if (!mergedAgents[name]) {
+      mergedAgents[name] = { model: existingAgents[name]?.model ?? preset.default };
+      fileLog(`[config-translator] Auto-discovered agent "${name}" not in preset, using default model: ${preset.default}`, "debug");
+    }
+  }
+
+  // Fallbacks come from user config only — presets don't define them
+  const mergedFallbacks = baseAdapterConfig.fallbacks;
 
   const adapterConfig: PAIAdapterConfig = {
     ...baseAdapterConfig,
     model_provider: provider,
     models: mergedModels,
+    agents: mergedAgents,
+    ...(mergedFallbacks && { fallbacks: mergedFallbacks }),
     identity: {
       ...(baseAdapterConfig.identity || {}),
       ...(aiName !== undefined && { aiName }),
@@ -481,9 +531,9 @@ function writeJsonFileAtomic(filePath: string, data: unknown): void {
 /**
  * Watch settings.json for changes and re-merge with opencode.json + pai-adapter.json
  *
- * @deprecated Not currently wired into the plugin. Model change detection is now
- * handled by watchConfigAndSync() in agent-model-sync.ts, which watches pai-adapter.json
- * directly. This function is kept for potential future use if PAI settings.json syncing
+ * @deprecated Not currently wired into the plugin. Model assignments are now
+ * managed via the config hook in pai-unified.ts reading from pai-adapter.json.
+ * This function is kept for potential future use if PAI settings.json syncing
  * is needed.
  *
  * @param settingsPath - Path to PAI settings.json

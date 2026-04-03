@@ -166,7 +166,7 @@ Charlie has no skills listed.
       await generateAgentsMD("/nonexistent/path/to/pai");
       throw new Error("Should have thrown");
     } catch (error) {
-      expect((error as Error).message).toContain("Failed to read agents directory");
+      expect((error as Error).message).toContain("No agents found in");
     }
   });
 

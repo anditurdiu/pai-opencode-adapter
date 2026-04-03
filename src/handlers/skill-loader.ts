@@ -25,6 +25,66 @@ import {
 // Base directory for all PAI skills
 const SKILLS_BASE_DIR = join(homedir(), ".claude", "skills");
 
+// User skill customizations directory
+const CUSTOMIZATIONS_DIR = join(homedir(), ".claude", "PAI", "USER", "SKILLCUSTOMIZATIONS");
+
+// ── Security ──────────────────────────────────────────────────────────────────
+
+/**
+ * Load skill customizations from PAI/USER/SKILLCUSTOMIZATIONS/{skillName}/.
+ * Reads EXTEND.yaml manifest, then loads all listed files.
+ * Returns null if no customizations exist.
+ */
+function loadCustomizations(skillName: string): string | null {
+  const customDir = join(CUSTOMIZATIONS_DIR, skillName);
+  if (!existsSync(customDir)) return null;
+
+  const files: string[] = [];
+
+  try {
+    let customEntries = readdirSync(customDir);
+
+    // Check for EXTEND.yaml manifest
+    const extendPath = join(customDir, "EXTEND.yaml");
+    if (existsSync(extendPath)) {
+      const extendContent = readFileSync(extendPath, "utf-8");
+      const enabledMatch = extendContent.match(/enabled:\s*(\w+)/);
+      if (enabledMatch && enabledMatch[1]?.toLowerCase() === "false") {
+        return null;
+      }
+
+      const extendsMatch = extendContent.match(/extends:\s*\n((?:\s+- .+\n?)+)/);
+      if (extendsMatch?.[1]) {
+        const listedFiles = extendsMatch[1]
+          .split("\n")
+          .map(l => l.trim().replace(/^- /, "").trim())
+          .filter(Boolean);
+        for (const f of listedFiles) {
+          const fp = join(customDir, f);
+          if (existsSync(fp)) {
+            files.push(readFileSync(fp, "utf-8"));
+          }
+        }
+      }
+    }
+
+    // If no EXTEND.yaml or no extends section, load PREFERENCES.md if it exists
+    if (files.length === 0) {
+      const prefsPath = join(customDir, "PREFERENCES.md");
+      if (existsSync(prefsPath)) {
+        files.push(readFileSync(prefsPath, "utf-8"));
+      }
+    }
+
+    if (files.length === 0) return null;
+
+    return `\n\n---\n\n## User Customizations for ${skillName}\n\n${files.join("\n\n---\n\n")}`;
+  } catch (err) {
+    fileLog(`[skill-loader] Failed to load customizations for "${skillName}": ${err}`, "warn");
+    return null;
+  }
+}
+
 // ── Security ──────────────────────────────────────────────────────────────────
 
 /**
@@ -350,7 +410,13 @@ Skills provide step-by-step instructions, workflows, and patterns for specialize
       try {
         const content = readFileSync(skillPath, "utf-8");
         fileLog(`[skill-loader] Loaded skill: "${name}" from ${skillPath}`, "info");
-        return maybeAppendPermissionContext(content, isSubagent, agentType, name);
+        let result = maybeAppendPermissionContext(content, isSubagent, agentType, name);
+        const customizations = loadCustomizations(name);
+        if (customizations) {
+          result += customizations;
+          fileLog(`[skill-loader] Appended customizations for "${name}"`, "info");
+        }
+        return result;
       } catch (err) {
         fileLog(`[skill-loader] Failed to read skill file: ${err}`, "warn");
         return `Error: Skill '${name}' not found. Use skill("list") to see available skills.`;

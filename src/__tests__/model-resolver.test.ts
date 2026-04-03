@@ -18,7 +18,6 @@ import {
 	checkSubagentHealth,
 	extractProvider,
 	clearProviderHealth,
-	type ModelRole,
 	type ProviderErrorType,
 	type FallbackSuggestion,
 } from "../lib/model-resolver.js";
@@ -80,7 +79,7 @@ describe("resolveModel", () => {
 	});
 
 	test("returns primary model for agent roles", () => {
-		const roles: ModelRole[] = ["intern", "architect", "engineer", "explorer", "reviewer"];
+		const roles = ["Architect", "Engineer", "GeminiResearcher", "ClaudeResearcher"];
 		for (const role of roles) {
 			const model = resolveModel(role);
 			expect(model).toBeDefined();
@@ -133,9 +132,9 @@ describe("getModelConfig", () => {
 	test("returns config with agent models", () => {
 		const config = getModelConfig();
 		expect(config.models.agents).toBeDefined();
-		expect(config.models.agents?.intern).toBeDefined();
-		expect(config.models.agents?.architect).toBeDefined();
-		expect(config.models.agents?.engineer).toBeDefined();
+		expect(config.models.agents?.CodexResearcher).toBeDefined();
+		expect(config.models.agents?.Architect).toBeDefined();
+		expect(config.models.agents?.Engineer).toBeDefined();
 	});
 });
 
@@ -228,8 +227,8 @@ describe("getModelRoutingContext", () => {
 
 	test("includes agent role models", () => {
 		const context = getModelRoutingContext();
-		expect(context).toContain("intern:");
-		expect(context).toContain("architect:");
+		expect(context).toContain("CodexResearcher:");
+		expect(context).toContain("Architect:");
 	});
 });
 

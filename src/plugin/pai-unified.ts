@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { tool } from "@opencode-ai/plugin";
+import type { PluginInput } from "@opencode-ai/plugin";
 import { fileLog } from "../lib/file-logger.js";
 import { emit as eventBusEmit } from "../core/event-bus.js";
 import { isDuplicate, clearSessionDedup } from "../core/dedup-cache.js";
@@ -68,8 +69,12 @@ import {
   checkSubagentHealth,
   extractProvider,
 } from "../lib/model-resolver.js";
-import { syncAgentModels, watchConfigAndSync } from "../lib/agent-model-sync.js";
 import { loadEnvFile } from "../handlers/env-loader.js";
+import { logRawEvent } from "../handlers/raw-event-logger.js";
+import { recordTranscriptEntry, captureFullTranscript } from "../handlers/transcript-bridge.js";
+import { nameSession, clearNamingState } from "../handlers/session-namer.js";
+import { extractRelationshipSignal, persistRelationshipSignal } from "../handlers/relationship-capture.js";
+import { AGENT_DEFINITIONS, AGENT_NAMES } from "../agents/definitions.js";
 
 const PLUGIN_NAME = "pai-adapter";
 const PLUGIN_VERSION = "0.10.0";
@@ -379,7 +384,8 @@ function safeHandler<T>(name: string, fn: () => T): T | undefined {
  * Each hook key is a single async function (not an array).
  * All sub-handlers are consolidated into one function per hook.
  */
-export const PaiPlugin = async (_ctx: unknown) => {
+export const PaiPlugin = async (ctx: PluginInput) => {
+  const opencodeClient = ctx.client;
   fileLog(`[pai-unified] plugin initialized: ${PLUGIN_NAME}@${PLUGIN_VERSION}`);
 
   // Load PAI environment variables from ~/.config/PAI/.env into process.env.
@@ -391,22 +397,6 @@ export const PaiPlugin = async (_ctx: unknown) => {
       fileLog(`[pai-unified] Env loader: ${result.loaded} vars loaded, ${result.skipped} skipped`);
     }
   });
-
-  // Sync agent model assignments from pai-adapter.json into agent .md files.
-  // This ensures the `model:` field in each agent's YAML frontmatter matches
-  // the configured role→model mapping, so OpenCode spawns agents with the
-  // correct models instead of using stale hardcoded values.
-  safeHandler("agentModelSync", () => {
-    const result = syncAgentModels();
-    if (result.synced.length > 0) {
-      fileLog(`[pai-unified] Agent models synced: ${result.synced.join(", ")}`);
-    }
-  });
-
-  // Watch pai-adapter.json for changes and re-sync agent models automatically.
-  // This catches model changes made while OpenCode is running, so the .md files
-  // are already correct on the next restart (fixes the "first restart" race condition).
-  const stopConfigWatcher = safeHandler("agentModelSync.watcher", () => watchConfigAndSync()) ?? (() => {});
 
   return {
     // ── permission.ask ──────────────────────────────────────
@@ -453,6 +443,54 @@ export const PaiPlugin = async (_ctx: unknown) => {
           toolName,
           bashCommand,
           output as { status?: "ask" | "deny" | "allow" },
+        );
+      });
+    },
+
+    // ── config ───────────────────────────────────────────────
+    // Injects PAI agent definitions into the OpenCode config at startup.
+    // This is the runtime-safe alternative to deploying static .md files:
+    // agents are loaded from PAI's source of truth (Context.md files) and
+    // merged into the config without overwriting any existing entries.
+    //
+    // Also disables the internal adapter shim agents ("algorithm", "native")
+    // that exist as static files but should not appear in the UI as user-
+    // selectable agents.
+    "config": async (input: Record<string, unknown>) => {
+      safeHandler("config.agentInjection", () => {
+        // Ensure agent map exists
+        if (!input.agent || typeof input.agent !== "object") {
+          input.agent = {};
+        }
+        const agentConfig = input.agent as Record<string, Record<string, unknown>>;
+
+        // Inject all PAI agents from definitions.ts (auto-discovered + phantoms)
+        for (const name of AGENT_NAMES) {
+          if (agentConfig[name]) continue; // Preserve existing entries
+          const def = AGENT_DEFINITIONS[name];
+          if (!def) continue;
+          agentConfig[name] = {
+            prompt: def.prompt,
+            permission: def.permission,
+            description: def.defaults.description,
+            color: def.defaults.color,
+            mode: def.defaults.mode,
+            maxSteps: def.defaults.steps,
+            temperature: def.defaults.temperature,
+          };
+        }
+
+        // Disable internal adapter shim agents — these are thin wrappers that
+        // handle routing (algorithm: runs PAI Algorithm; native: uses CLAUDE.md
+        // directly) and should not be surfaced to users as selectable agents.
+        if (!agentConfig["algorithm"]) agentConfig["algorithm"] = {};
+        agentConfig["algorithm"].disable = true;
+        if (!agentConfig["native"]) agentConfig["native"] = {};
+        agentConfig["native"].disable = true;
+
+        fileLog(
+          `[config-hook] Injected ${AGENT_NAMES.length} PAI agents, disabled algorithm/native shims`,
+          "info",
         );
       });
     },
@@ -625,6 +663,39 @@ export const PaiPlugin = async (_ctx: unknown) => {
             pendingSubagentSpawns.delete(sidForAgentBlock);
           }
           return;
+        }
+
+        // ── Max concurrent subagent guard ──
+        // OpenCode has a known bug where spawning more than 2 concurrent
+        // subagents from the same primary session causes stalls, incorrect
+        // status tracking, and frozen sessions. We enforce a hard limit of 2
+        // concurrent subagents per primary session and fail fast with a clear
+        // message so the LLM queues tasks sequentially instead.
+        //
+        // Only applies to primary sessions — subagent sessions are already
+        // blocked from calling Task via the context isolation layer.
+        if (!isKnownSubagent(sidForAgentBlock)) {
+          const activeSubagentsForParent = [...subagentTracking.values()].filter(
+            (info) => info.parentSessionId === sidForAgentBlock,
+          ).length;
+          if (activeSubagentsForParent >= 2) {
+            const reason =
+              `Max concurrent subagent limit (2) reached for this session. ` +
+              `This is a workaround for a known OpenCode bug where 3+ concurrent subagents ` +
+              `cause stalls and frozen sessions. Wait for a running subagent to complete, ` +
+              `then spawn the next one.`;
+            fileLog(
+              `[concurrency-guard] BLOCKED Task call: ${activeSubagentsForParent} active subagents for ${sidForAgentBlock.slice(0, 8)}, max is 2`,
+              "warn",
+            );
+            (output as { block?: boolean; reason?: string }).block = true;
+            (output as { block?: boolean; reason?: string }).reason = reason;
+            queue.pop();
+            if (queue.length === 0) {
+              pendingSubagentSpawns.delete(sidForAgentBlock);
+            }
+            return;
+          }
         }
       }
 
@@ -801,6 +872,24 @@ export const PaiPlugin = async (_ctx: unknown) => {
         ),
       );
 
+      // Transcript recording for user and assistant messages
+      if (role === "user" || role === "assistant") {
+        safeHandler("transcript.record", () => recordTranscriptEntry(sid, role as "user" | "assistant", content));
+      }
+
+      // Auto-name session from first substantive user message
+      if (role === "user" && content.trim().length > 10) {
+        safeHandler("sessionNaming", () => nameSession(sid, content));
+      }
+
+      // Extract relationship signals from user messages
+      if (role === "user") {
+        safeHandler("relationshipCapture", () => {
+          const signal = extractRelationshipSignal(sid, content);
+          if (signal) persistRelationshipSignal(signal);
+        });
+      }
+
       // Implicit sentiment detection
       safeHandler("sentiment.implicit", () =>
         implicitSentimentHandler(sid, content),
@@ -853,6 +942,9 @@ export const PaiPlugin = async (_ctx: unknown) => {
       const eventType = String(evt.type ?? "");
 
       fileLog(`[pai-unified] event received: ${eventType}`, "debug");
+
+      // Log all events to raw event log
+      safeHandler("rawEventLogger", () => logRawEvent(eventType, evt));
 
       if (eventType === "session.compacted") {
         safeHandler("compaction.reactive", () =>
@@ -978,15 +1070,6 @@ export const PaiPlugin = async (_ctx: unknown) => {
           });
 
           // Defensive re-sync agent models on primary session start.
-          // OpenCode may cache agent configs at startup before plugins initialize,
-          // so the init-time sync may not take effect. Re-syncing here ensures
-          // the .md files are correct for any subsequent session/restart.
-          safeHandler("agentModelSync.sessionStart", () => {
-            const result = syncAgentModels();
-            if (result.synced.length > 0) {
-              fileLog(`[pai-unified] Session-start re-sync: ${result.synced.join(", ")}`);
-            }
-          });
         } else {
           fileLog(`[pai-unified] sub-agent session registered (${sid.slice(0, 8)}), voice curls will be blocked`);
         }
@@ -1051,6 +1134,16 @@ export const PaiPlugin = async (_ctx: unknown) => {
           safeHandler("learning.flush.end", () => { flushSessionLearnings(sid); });
         }
 
+        // Capture full transcript via SDK on session end (non-subagent only)
+        if (sid && !isKnownSubagent(sid)) {
+          safeHandler("transcript.fullCapture", async () => {
+            const count = await captureFullTranscript(opencodeClient as any, sid);
+            if (count > 0) {
+              fileLog(`[transcript-bridge] Captured full transcript: ${count} messages`, "info");
+            }
+          });
+        }
+
         // Clean up per-session in-memory state to prevent memory leaks
         if (sid) {
           safeHandler("cleanup.context", () => clearContextCache(sid));
@@ -1066,6 +1159,7 @@ export const PaiPlugin = async (_ctx: unknown) => {
           safeHandler("cleanup.pendingSpawns", () => pendingSubagentSpawns.delete(sid));
           safeHandler("cleanup.prdBinding", () => statuslineClearPRDBinding(sid));
           safeHandler("cleanup.agentTypeRegistry", () => clearSubagentType(sid));
+          safeHandler("cleanup.namingState", () => clearNamingState(sid));
         }
       }
 

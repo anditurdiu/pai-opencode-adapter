@@ -1,7 +1,7 @@
 ---
 description: Fast research agent for investigating topics, gathering information, analyzing codebases, and extracting insights. Uses web search, documentation retrieval, and code analysis.
 mode: subagent
-model: zai-coding-plan/glm-4.7
+model: zai-coding-plan/glm-5-turbo
 color: "#A855F7"
 temperature: 0.2
 permission:

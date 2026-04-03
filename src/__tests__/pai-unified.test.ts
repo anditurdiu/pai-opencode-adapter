@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll, afterEach, beforeEach } from "bun:test";
+import type { PluginInput } from "@opencode-ai/plugin";
 import PaiPlugin, {
   healthCheck,
   __testInternals,
@@ -21,11 +22,21 @@ const {
   hashReasoningChunk: _hashReasoningChunkForTest,
 } = __testInternals;
 
+// Mock PluginInput — tests only exercise hooks, not the full plugin client
+const mockPluginInput = {
+  client: { instance: { dispose: async () => {} } },
+  project: { root: "/tmp/test-project" },
+  directory: "/tmp/test-project",
+  worktree: "/tmp/test-project",
+  serverUrl: new URL("http://localhost:3000"),
+  $: (() => {}) as unknown,
+} as unknown as PluginInput;
+
 // The plugin is now a function — call it once to get the hooks object
 let hooks: Record<string, unknown>;
 
 beforeAll(async () => {
-  hooks = await PaiPlugin({});
+  hooks = await PaiPlugin(mockPluginInput);
 });
 
 describe("plugin function", () => {
@@ -67,6 +78,168 @@ describe("hook registration", () => {
   it("registers event hook", () => {
     expect(typeof hooks["event"]).toBe("function");
   });
+
+  it("registers config hook", () => {
+    expect(typeof hooks["config"]).toBe("function");
+  });
+});
+
+// ── config hook agent injection ──────────────────────────
+// ISC-27: Tests that the config hook injects all PAI agents (auto-discovered), disables
+// algorithm/native, reads model assignments from pai-adapter.json,
+// and merges definitions with config properly.
+
+import { AGENT_DEFINITIONS, AGENT_NAMES, PAI_AGENT_REGISTRY, clearPromptCache } from "../agents/definitions.js";
+
+describe("config hook agent injection", () => {
+  it("injects all PAI agents into config.agent", async () => {
+    const configHook = hooks["config"] as (input: Record<string, unknown>) => Promise<void>;
+    const input: Record<string, unknown> = { agent: {} };
+    await configHook(input);
+
+    const agentConfig = input.agent as Record<string, Record<string, unknown>>;
+    for (const name of AGENT_NAMES) {
+      expect(agentConfig[name]).toBeDefined();
+    }
+  });
+
+  it("injected agents have prompts from definitions.ts", async () => {
+    const configHook = hooks["config"] as (input: Record<string, unknown>) => Promise<void>;
+    const input: Record<string, unknown> = { agent: {} };
+    await configHook(input);
+
+    const agentConfig = input.agent as Record<string, Record<string, unknown>>;
+    for (const name of AGENT_NAMES) {
+      const def = AGENT_DEFINITIONS[name];
+      if (def) {
+        expect(agentConfig[name]?.prompt).toBe(def.prompt);
+      }
+    }
+  });
+
+  it("injected agents have permissions from definitions.ts", async () => {
+    const configHook = hooks["config"] as (input: Record<string, unknown>) => Promise<void>;
+    const input: Record<string, unknown> = { agent: {} };
+    await configHook(input);
+
+    const agentConfig = input.agent as Record<string, Record<string, unknown>>;
+    for (const name of AGENT_NAMES) {
+      const def = AGENT_DEFINITIONS[name];
+      if (def) {
+        expect(agentConfig[name]?.permission).toEqual(def.permission);
+      }
+    }
+  });
+
+  it("disables algorithm agent via disable: true", async () => {
+    const configHook = hooks["config"] as (input: Record<string, unknown>) => Promise<void>;
+    const input: Record<string, unknown> = { agent: {} };
+    await configHook(input);
+
+    const agentConfig = input.agent as Record<string, Record<string, unknown>>;
+    expect(agentConfig["algorithm"]?.disable).toBe(true);
+  });
+
+  it("disables native agent via disable: true", async () => {
+    const configHook = hooks["config"] as (input: Record<string, unknown>) => Promise<void>;
+    const input: Record<string, unknown> = { agent: {} };
+    await configHook(input);
+
+    const agentConfig = input.agent as Record<string, Record<string, unknown>>;
+    expect(agentConfig["native"]?.disable).toBe(true);
+  });
+
+  it("injected agents have defaults (description, color, mode, etc.)", async () => {
+    const configHook = hooks["config"] as (input: Record<string, unknown>) => Promise<void>;
+    const input: Record<string, unknown> = { agent: {} };
+    await configHook(input);
+
+    const agentConfig = input.agent as Record<string, Record<string, unknown>>;
+    for (const name of AGENT_NAMES) {
+      const def = AGENT_DEFINITIONS[name];
+      if (def) {
+        expect(agentConfig[name]?.description).toBe(def.defaults.description);
+        expect(agentConfig[name]?.color).toBe(def.defaults.color);
+        expect(agentConfig[name]?.mode).toBe(def.defaults.mode);
+        expect(agentConfig[name]?.maxSteps).toBe(def.defaults.steps);
+        expect(agentConfig[name]?.temperature).toBe(def.defaults.temperature);
+      }
+    }
+  });
+
+  it("creates agent object if input.agent is missing", async () => {
+    const configHook = hooks["config"] as (input: Record<string, unknown>) => Promise<void>;
+    const input: Record<string, unknown> = {};
+    await configHook(input);
+
+    expect(input.agent).toBeDefined();
+    const agentConfig = input.agent as Record<string, Record<string, unknown>>;
+    expect(Object.keys(agentConfig).length).toBeGreaterThan(0);
+  });
+
+  it("preserves existing agent config entries", async () => {
+    const configHook = hooks["config"] as (input: Record<string, unknown>) => Promise<void>;
+    const input: Record<string, unknown> = {
+      agent: { build: { model: "test/model", prompt: "test prompt" } },
+    };
+    await configHook(input);
+
+    const agentConfig = input.agent as Record<string, Record<string, unknown>>;
+    expect(agentConfig["build"]?.model).toBe("test/model");
+    expect(agentConfig["build"]?.prompt).toBe("test prompt");
+  });
+});
+
+// ── Dynamic PAI prompt resolution ──────────────────────────
+
+describe("dynamic PAI prompt resolution", () => {
+  afterEach(() => {
+    clearPromptCache();
+  });
+
+  it("AGENT_NAMES has all PAI agents (Context.md + phantoms)", () => {
+    expect(AGENT_NAMES.length).toBeGreaterThanOrEqual(13);
+    expect(AGENT_NAMES).toContain("Architect");
+    expect(AGENT_NAMES).toContain("Engineer");
+    expect(AGENT_NAMES).toContain("GeminiResearcher");
+    expect(AGENT_NAMES).toContain("ClaudeResearcher");
+    expect(AGENT_NAMES).toContain("QATester");
+    expect(AGENT_NAMES).toContain("GeneralPurpose");
+    expect(AGENT_NAMES).toContain("Plan");
+    expect(AGENT_NAMES).toContain("Pentester");
+  });
+
+  it("PAI_AGENT_REGISTRY maps all 10 agents to context files", () => {
+    expect(PAI_AGENT_REGISTRY["Architect"]?.contextFile).toBe("ArchitectContext.md");
+    expect(PAI_AGENT_REGISTRY["Engineer"]?.contextFile).toBe("EngineerContext.md");
+    expect(PAI_AGENT_REGISTRY["GeminiResearcher"]?.contextFile).toBe("GeminiResearcherContext.md");
+    expect(PAI_AGENT_REGISTRY["ClaudeResearcher"]?.contextFile).toBe("ClaudeResearcherContext.md");
+    expect(PAI_AGENT_REGISTRY["QATester"]?.contextFile).toBe("QATesterContext.md");
+  });
+
+  it("all PAI agents get non-empty prompts from Context.md files", () => {
+    for (const name of AGENT_NAMES) {
+      const def = AGENT_DEFINITIONS[name];
+      expect(def).toBeDefined();
+      expect(def!.prompt.length).toBeGreaterThan(50);
+    }
+  });
+
+  it("no adapter-only agents exist (intern, explorer, thinker)", () => {
+    expect(AGENT_NAMES).not.toContain("intern");
+    expect(AGENT_NAMES).not.toContain("explorer");
+    expect(AGENT_NAMES).not.toContain("thinker");
+    expect(AGENT_NAMES).not.toContain("research");
+    expect(AGENT_NAMES).not.toContain("research-claude");
+    expect(AGENT_NAMES).not.toContain("research-bailian");
+  });
+
+  it("prompt getter returns string content (not undefined)", () => {
+    for (const name of AGENT_NAMES) {
+      const def = AGENT_DEFINITIONS[name];
+      expect(typeof def!.prompt).toBe("string");
+    }
+  });
 });
 
 describe("tool registration", () => {
@@ -96,7 +269,7 @@ describe("healthCheck", () => {
 
   it("returns version", () => {
     const result = healthCheck();
-    expect(result.version).toBe("0.9.1");
+    expect(result.version).toBe("0.10.0");
   });
 });
 
@@ -402,7 +575,7 @@ describe("subagent Task tool blocking", () => {
     const pending = _pendingSubagentSpawnsForTest.get(subagentSid);
     expect(pending).toBeDefined();
     expect(pending!.length).toBeGreaterThanOrEqual(1);
-    expect(pending![0].subagentType).toBe("explorer");
+    expect(pending![0]!.subagentType).toBe("explorer");
     // Clean up
     _pendingSubagentSpawnsForTest.delete(subagentSid);
   });
@@ -552,7 +725,7 @@ describe("Task-call timing registry — subagent detection", () => {
       const pending = _pendingSubagentSpawnsForTest.get(subSid);
       expect(pending).toBeDefined();
       expect(pending!.length).toBe(1);
-      expect(pending![0].subagentType).toBe("explorer");
+      expect(pending![0]!.subagentType).toBe("explorer");
     } finally {
       _subagentSessionsForTest.delete(subSid);
       _pendingSubagentSpawnsForTest.delete(subSid);
@@ -642,6 +815,151 @@ describe("Task-call timing registry — spawn expiry", () => {
     // The fresh entry SHOULD have caused the new session to be registered as a subagent
     expect(_subagentSessionsForTest.has("session-after-fresh")).toBe(true);
   });
+});
+
+// ── Concurrency Guard Tests ─────────────────────────────────
+
+describe("max concurrent subagent guard", () => {
+  const toolBeforeFn = () => hooks["tool.execute.before"] as (i: unknown, o: unknown) => Promise<void>;
+  const eventFn = () => hooks["event"] as (i: unknown) => Promise<void>;
+  const parentSid = "primary-concurrency-test";
+
+  afterEach(() => {
+    // Clean up all tracking entries created by these tests
+    _pendingSubagentSpawnsForTest.delete(parentSid);
+    for (const sid of ["conc-sub-1", "conc-sub-2", "conc-sub-3"]) {
+      _subagentSessionsForTest.delete(sid);
+      _subagentTrackingForTest.delete(sid);
+    }
+  });
+
+  it("allows first two Task calls from the same session", async () => {
+    // First Task call
+    const output1: Record<string, unknown> = {};
+    await toolBeforeFn()(
+      { tool: "Task", sessionID: parentSid, args: { subagent_type: "engineer", description: "Build feature" } },
+      output1,
+    );
+    expect(output1.block).toBeUndefined();
+
+    // Simulate the first subagent being created
+    await eventFn()({
+      event: { type: "session.created", properties: { info: { id: "conc-sub-1" } } },
+    });
+    expect(_subagentTrackingForTest.has("conc-sub-1")).toBe(true);
+
+    // Second Task call
+    const output2: Record<string, unknown> = {};
+    await toolBeforeFn()(
+      { tool: "Task", sessionID: parentSid, args: { subagent_type: "explorer", description: "Search codebase" } },
+      output2,
+    );
+    expect(output2.block).toBeUndefined();
+
+    // Simulate the second subagent being created
+    await eventFn()({
+      event: { type: "session.created", properties: { info: { id: "conc-sub-2" } } },
+    });
+    expect(_subagentTrackingForTest.has("conc-sub-2")).toBe(true);
+  });
+
+  it("blocks third Task call when two subagents are already active for the same parent", async () => {
+    // Set up two active subagents for the parent session
+    _subagentTrackingForTest.set("conc-sub-1", {
+      parentSessionId: parentSid,
+      subagentType: "engineer",
+      description: "Build feature",
+      spawnedAt: Date.now(),
+      lastActivityAt: Date.now(),
+      stallWarned: false,
+    });
+    _subagentTrackingForTest.set("conc-sub-2", {
+      parentSessionId: parentSid,
+      subagentType: "explorer",
+      description: "Search codebase",
+      spawnedAt: Date.now(),
+      lastActivityAt: Date.now(),
+      stallWarned: false,
+    });
+
+    // Third Task call should be blocked
+    const output3: Record<string, unknown> = {};
+    await toolBeforeFn()(
+      { tool: "Task", sessionID: parentSid, args: { subagent_type: "thinker", description: "Analyze approach" } },
+      output3,
+    );
+    expect(output3.block).toBe(true);
+    expect(typeof output3.reason).toBe("string");
+    expect((output3.reason as string)).toContain("Max concurrent subagent limit");
+    expect((output3.reason as string)).toContain("known OpenCode bug");
+  });
+
+  it("does NOT block Task calls from a different session even if another session has 2 active", async () => {
+    // Set up two active subagents for the parent session
+    _subagentTrackingForTest.set("conc-sub-1", {
+      parentSessionId: parentSid,
+      subagentType: "engineer",
+      description: "Build feature",
+      spawnedAt: Date.now(),
+      lastActivityAt: Date.now(),
+      stallWarned: false,
+    });
+    _subagentTrackingForTest.set("conc-sub-2", {
+      parentSessionId: parentSid,
+      subagentType: "explorer",
+      description: "Search codebase",
+      spawnedAt: Date.now(),
+      lastActivityAt: Date.now(),
+      stallWarned: false,
+    });
+
+    // Task call from a DIFFERENT session should NOT be blocked
+    const otherSid = "other-session-conc-test";
+    const output: Record<string, unknown> = {};
+    await toolBeforeFn()(
+      { tool: "Task", sessionID: otherSid, args: { subagent_type: "intern", description: "Simple task" } },
+      output,
+    );
+    expect(output.block).toBeUndefined();
+
+    // Clean up
+    _pendingSubagentSpawnsForTest.delete(otherSid);
+  });
+
+  it("allows Task call after a subagent completes (session.end reduces count)", async () => {
+    // Set up two active subagents
+    _subagentTrackingForTest.set("conc-sub-1", {
+      parentSessionId: parentSid,
+      subagentType: "engineer",
+      description: "Build feature",
+      spawnedAt: Date.now(),
+      lastActivityAt: Date.now(),
+      stallWarned: false,
+    });
+    _subagentTrackingForTest.set("conc-sub-2", {
+      parentSessionId: parentSid,
+      subagentType: "explorer",
+      description: "Search codebase",
+      spawnedAt: Date.now(),
+      lastActivityAt: Date.now(),
+      stallWarned: false,
+    });
+    _subagentSessionsForTest.add("conc-sub-1");
+
+    // Simulate first subagent ending
+    await eventFn()({
+      event: { type: "session.end", properties: { sessionID: "conc-sub-1" } },
+    });
+
+    // Now only 1 active subagent — the next Task call should succeed
+    const output: Record<string, unknown> = {};
+    await toolBeforeFn()(
+      { tool: "Task", sessionID: parentSid, args: { subagent_type: "thinker", description: "Analyze" } },
+      output,
+    );
+    expect(output.block).toBeUndefined();
+  });
+
 });
 
 // ── Enhanced Error Detection Tests ──────────────────────────

@@ -1,7 +1,7 @@
 ---
 description: Fast read-only codebase exploration agent. Finds files, searches patterns, traces code paths, and maps project structure. Cannot modify files.
 mode: subagent
-model: zai-coding-plan/glm-4.7
+model: zai-coding-plan/glm-5-turbo
 color: "#22C55E"
 temperature: 0.1
 steps: 30

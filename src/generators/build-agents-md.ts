@@ -67,52 +67,59 @@ export function parseAgentDefinition(content: string, filename: string): AgentDe
 /**
  * Generate a markdown summary of all available PAI agents.
  *
- * Checks new path (`skills/Agents/`) first for `*Context.md` files,
- * then falls back to legacy path (`agents/`) for `*.md` files.
+ * Scans `skills/Agents/*Context.md` for context-based agents, then
+ * supplements with `agents/*.md` for named agents that don't have
+ * Context.md files (e.g., BrowserAgent, UIReviewer, Algorithm, Pentester).
+ * Deduplicates by agent name to avoid double-counting.
  */
 export async function generateAgentsMD(paiDir?: string): Promise<string> {
   const rootDir = paiDir || PATHS.PAI_ROOT();
 
-  // Try new path first: skills/Agents/*Context.md
-  const newAgentsDir = join(rootDir, "skills", "Agents");
-  const legacyAgentsDir = join(rootDir, "agents");
+  const contextAgentsDir = join(rootDir, "skills", "Agents");
+  const namedAgentsDir = join(rootDir, "agents");
 
-  let files: string[];
-  let agentsDir: string = legacyAgentsDir;
+  const agentsByName = new Map<string, AgentDefinition>();
 
-  if (existsSync(newAgentsDir)) {
-    agentsDir = newAgentsDir;
+  // 1. Scan skills/Agents/*Context.md (primary source)
+  if (existsSync(contextAgentsDir)) {
     try {
-      files = readdirSync(newAgentsDir).filter(
+      const contextFiles = readdirSync(contextAgentsDir).filter(
         f => f.endsWith("Context.md")
       );
+      for (const file of contextFiles) {
+        const filePath = join(contextAgentsDir, file);
+        const content = readFileSync(filePath, "utf-8");
+        const agent = parseAgentDefinition(content, file);
+        agentsByName.set(agent.name, agent);
+      }
     } catch {
-      files = [];
+      // Skip on error
     }
-  } else {
-    files = [];
   }
 
-  // Fall back to legacy path if new path has no context files
-  if (files.length === 0) {
-    agentsDir = legacyAgentsDir;
+  // 2. Supplement with agents/*.md for named agents not already discovered
+  if (existsSync(namedAgentsDir)) {
     try {
-      files = readdirSync(legacyAgentsDir).filter(f => f.endsWith(".md"));
+      const namedFiles = readdirSync(namedAgentsDir).filter(f => f.endsWith(".md"));
+      for (const file of namedFiles) {
+        const filePath = join(namedAgentsDir, file);
+        const content = readFileSync(filePath, "utf-8");
+        const agent = parseAgentDefinition(content, file);
+        // Only add if not already present from Context.md scan
+        if (!agentsByName.has(agent.name)) {
+          agentsByName.set(agent.name, agent);
+        }
+      }
     } catch {
-      throw new Error(`Failed to read agents directory: ${legacyAgentsDir}`);
+      // Skip on error
     }
   }
 
-  const agents: AgentDefinition[] = [];
-
-  for (const file of files) {
-    const filePath = join(agentsDir, file);
-    const content = readFileSync(filePath, "utf-8");
-    const agent = parseAgentDefinition(content, file);
-    agents.push(agent);
+  if (agentsByName.size === 0) {
+    throw new Error(`No agents found in ${contextAgentsDir} or ${namedAgentsDir}`);
   }
 
-  agents.sort((a, b) => a.name.localeCompare(b.name));
+  const agents = Array.from(agentsByName.values()).sort((a, b) => a.name.localeCompare(b.name));
 
   let markdown = "# Agents\n\n";
   markdown += `Total: ${agents.length} agents\n\n`;

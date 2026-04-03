@@ -81,13 +81,13 @@ describe("getProviderPreset", () => {
   test("returns preset for anthropic", () => {
     const preset = getProviderPreset("anthropic");
     expect(preset.default).toBe("anthropic/claude-sonnet-4-5");
-    expect(preset.agents?.intern).toBe("anthropic/claude-haiku-4-5");
+    expect(preset.agents?.Architect).toBe("anthropic/claude-opus-4-5");
   });
 
   test("returns preset for openai", () => {
     const preset = getProviderPreset("openai");
     expect(preset.default).toBe("openai/gpt-4o");
-    expect(preset.agents?.intern).toBe("openai/gpt-4o-mini");
+    expect(preset.agents?.Engineer).toBe("openai/gpt-4o");
   });
 
   test("returns preset for google", () => {
