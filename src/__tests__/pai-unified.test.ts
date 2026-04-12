@@ -13,6 +13,7 @@ const {
   subagentSessions: _subagentSessionsForTest,
   pendingSubagentSpawns: _pendingSubagentSpawnsForTest,
   subagentTracking: _subagentTrackingForTest,
+  subagentCallIdToSid: _subagentCallIdToSidForTest,
   SPAWN_TIMEOUT_MS: _SPAWN_TIMEOUT_MS_FOR_TEST,
   STALL_TIMEOUT_MS: _STALL_TIMEOUT_MS_FOR_TEST,
   getStalledSubagentWarnings: _getStalledSubagentWarningsForTest,
@@ -783,7 +784,7 @@ describe("Task-call timing registry — spawn expiry", () => {
   it("expired pending spawn is NOT matched to session.created", async () => {
     // Manually inject a spawn entry that is already past the 30s timeout
     const expiredTimestamp = Date.now() - (_SPAWN_TIMEOUT_MS_FOR_TEST + 1000);
-    _pendingSubagentSpawnsForTest.set("primary-expired-test", [{ timestamp: expiredTimestamp, subagentType: "engineer", description: "expired test" }]);
+    _pendingSubagentSpawnsForTest.set("primary-expired-test", [{ timestamp: expiredTimestamp, subagentType: "engineer", description: "expired test", callId: "" }]);
 
     await eventFn()({
       event: {
@@ -799,7 +800,7 @@ describe("Task-call timing registry — spawn expiry", () => {
   it("non-expired pending spawn IS matched to session.created", async () => {
     // Manually inject a spawn entry that is within the timeout window (1s ago)
     const recentTimestamp = Date.now() - 1000;
-    _pendingSubagentSpawnsForTest.set("primary-fresh-test", [{ timestamp: recentTimestamp, subagentType: "engineer", description: "fresh test" }]);
+    _pendingSubagentSpawnsForTest.set("primary-fresh-test", [{ timestamp: recentTimestamp, subagentType: "engineer", description: "fresh test", callId: "" }]);
 
     await eventFn()({
       event: {
@@ -817,26 +818,29 @@ describe("Task-call timing registry — spawn expiry", () => {
 
 describe("max concurrent subagent guard", () => {
   const toolBeforeFn = () => hooks["tool.execute.before"] as (i: unknown, o: unknown) => Promise<void>;
+  const toolAfterFn = () => hooks["tool.execute.after"] as (i: unknown, o: unknown) => Promise<void>;
   const eventFn = () => hooks["event"] as (i: unknown) => Promise<void>;
   const parentSid = "primary-concurrency-test";
 
   afterEach(() => {
     // Clean up all tracking entries created by these tests
     _pendingSubagentSpawnsForTest.delete(parentSid);
-    for (const sid of ["conc-sub-1", "conc-sub-2", "conc-sub-3"]) {
+    for (const sid of ["conc-sub-1", "conc-sub-2", "conc-sub-3", "conc-sub-4", "conc-sub-5"]) {
       _subagentSessionsForTest.delete(sid);
       _subagentTrackingForTest.delete(sid);
     }
+    // Clean up callId mappings
+    for (const [callId, subSid] of _subagentCallIdToSidForTest.entries()) {
+      if (subSid.startsWith("conc-sub-")) _subagentCallIdToSidForTest.delete(callId);
+    }
   });
 
-  it("allows first two Task calls from the same session", async () => {
+  it("allows first four Task calls from the same session (limit is 4)", async () => {
     // First Task call
     await toolBeforeFn()(
       { tool: "Task", sessionID: parentSid },
       { args: { subagent_type: "engineer", description: "Build feature" } },
     );
-
-    // Simulate the first subagent being created
     await eventFn()({
       event: { type: "session.created", properties: { info: { id: "conc-sub-1" } } },
     });
@@ -847,66 +851,66 @@ describe("max concurrent subagent guard", () => {
       { tool: "Task", sessionID: parentSid },
       { args: { subagent_type: "explorer", description: "Search codebase" } },
     );
-
-    // Simulate the second subagent being created
     await eventFn()({
       event: { type: "session.created", properties: { info: { id: "conc-sub-2" } } },
     });
     expect(_subagentTrackingForTest.has("conc-sub-2")).toBe(true);
+
+    // Third Task call
+    await toolBeforeFn()(
+      { tool: "Task", sessionID: parentSid },
+      { args: { subagent_type: "architect", description: "Analyze design" } },
+    );
+    await eventFn()({
+      event: { type: "session.created", properties: { info: { id: "conc-sub-3" } } },
+    });
+    expect(_subagentTrackingForTest.has("conc-sub-3")).toBe(true);
+
+    // Fourth Task call
+    await toolBeforeFn()(
+      { tool: "Task", sessionID: parentSid },
+      { args: { subagent_type: "geminiresearcher", description: "Research topic" } },
+    );
+    await eventFn()({
+      event: { type: "session.created", properties: { info: { id: "conc-sub-4" } } },
+    });
+    expect(_subagentTrackingForTest.has("conc-sub-4")).toBe(true);
   });
 
-  it("blocks third Task call when two subagents are already active for the same parent", async () => {
-    // Set up two active subagents for the parent session
-    _subagentTrackingForTest.set("conc-sub-1", {
-      parentSessionId: parentSid,
-      subagentType: "engineer",
-      description: "Build feature",
-      spawnedAt: Date.now(),
-      lastActivityAt: Date.now(),
-      stallWarned: false,
-    });
-    _subagentTrackingForTest.set("conc-sub-2", {
-      parentSessionId: parentSid,
-      subagentType: "explorer",
-      description: "Search codebase",
-      spawnedAt: Date.now(),
-      lastActivityAt: Date.now(),
-      stallWarned: false,
-    });
+  it("blocks fifth Task call when four subagents are already active for the same parent", async () => {
+    // Set up four active subagents for the parent session
+    for (const [sub, type] of [["conc-sub-1", "engineer"], ["conc-sub-2", "explorer"], ["conc-sub-3", "architect"], ["conc-sub-4", "researcher"]] as const) {
+      _subagentTrackingForTest.set(sub, {
+        parentSessionId: parentSid,
+        subagentType: type,
+        description: "Active task",
+        spawnedAt: Date.now(),
+        lastActivityAt: Date.now(),
+        stallWarned: false,
+      });
+    }
 
-    // Third Task call should throw (blocked)
+    // Fifth Task call should throw (blocked)
     await expect(
       toolBeforeFn()(
         { tool: "Task", sessionID: parentSid },
         { args: { subagent_type: "thinker", description: "Analyze approach" } },
       )
     ).rejects.toThrow(/Max concurrent subagent limit/);
-    await expect(
-      toolBeforeFn()(
-        { tool: "Task", sessionID: parentSid },
-        { args: { subagent_type: "thinker", description: "Analyze approach" } },
-      )
-    ).rejects.toThrow(/known OpenCode bug/);
   });
 
-  it("does NOT block Task calls from a different session even if another session has 2 active", async () => {
-    // Set up two active subagents for the parent session
-    _subagentTrackingForTest.set("conc-sub-1", {
-      parentSessionId: parentSid,
-      subagentType: "engineer",
-      description: "Build feature",
-      spawnedAt: Date.now(),
-      lastActivityAt: Date.now(),
-      stallWarned: false,
-    });
-    _subagentTrackingForTest.set("conc-sub-2", {
-      parentSessionId: parentSid,
-      subagentType: "explorer",
-      description: "Search codebase",
-      spawnedAt: Date.now(),
-      lastActivityAt: Date.now(),
-      stallWarned: false,
-    });
+  it("does NOT block Task calls from a different session even if another session has 4 active", async () => {
+    // Set up four active subagents for the parent session
+    for (const [sub, type] of [["conc-sub-1", "engineer"], ["conc-sub-2", "explorer"], ["conc-sub-3", "architect"], ["conc-sub-4", "researcher"]] as const) {
+      _subagentTrackingForTest.set(sub, {
+        parentSessionId: parentSid,
+        subagentType: type,
+        description: "Active task",
+        spawnedAt: Date.now(),
+        lastActivityAt: Date.now(),
+        stallWarned: false,
+      });
+    }
 
     // Task call from a DIFFERENT session should NOT be blocked
     const otherSid = "other-session-conc-test";
@@ -921,7 +925,55 @@ describe("max concurrent subagent guard", () => {
     _pendingSubagentSpawnsForTest.delete(otherSid);
   });
 
-  it("allows Task call after a subagent completes (session.end reduces count)", async () => {
+  it("allows Task call after a subagent completes via callID cleanup in tool.execute.after", async () => {
+    // Spawn 4 subagents to hit the limit
+    for (const [sub, type, callId] of [
+      ["conc-sub-1", "engineer", "call-c1"],
+      ["conc-sub-2", "explorer", "call-c2"],
+      ["conc-sub-3", "architect", "call-c3"],
+      ["conc-sub-4", "researcher", "call-c4"],
+    ] as const) {
+      _subagentTrackingForTest.set(sub, {
+        parentSessionId: parentSid,
+        subagentType: type,
+        description: "Active task",
+        spawnedAt: Date.now(),
+        lastActivityAt: Date.now(),
+        stallWarned: false,
+      });
+      _subagentSessionsForTest.add(sub);
+      _subagentCallIdToSidForTest.set(callId, sub);
+    }
+
+    // 5th call should be blocked (4 active)
+    await expect(
+      toolBeforeFn()(
+        { tool: "Task", sessionID: parentSid },
+        { args: { subagent_type: "thinker", description: "Blocked" } },
+      )
+    ).rejects.toThrow(/Max concurrent subagent limit/);
+
+    // Simulate first subagent completing via tool.execute.after with callID
+    await toolAfterFn()(
+      { tool: "Task", sessionID: parentSid, callID: "call-c1", args: { subagent_type: "engineer", description: "Active task" } },
+      {},
+    );
+
+    // conc-sub-1 should now be cleaned up
+    expect(_subagentTrackingForTest.has("conc-sub-1")).toBe(false);
+    expect(_subagentSessionsForTest.has("conc-sub-1")).toBe(false);
+    expect(_subagentCallIdToSidForTest.has("call-c1")).toBe(false);
+
+    // Now only 3 active — 5th call should succeed
+    await expect(
+      toolBeforeFn()(
+        { tool: "Task", sessionID: parentSid },
+        { args: { subagent_type: "thinker", description: "Analyze" } },
+      )
+    ).resolves.toBeUndefined();
+  });
+
+  it("allows Task call after a subagent completes via session.end fallback (for backward compat)", async () => {
     // Set up two active subagents
     _subagentTrackingForTest.set("conc-sub-1", {
       parentSessionId: parentSid,
@@ -941,12 +993,12 @@ describe("max concurrent subagent guard", () => {
     });
     _subagentSessionsForTest.add("conc-sub-1");
 
-    // Simulate first subagent ending
+    // Simulate first subagent ending via session.end (fallback path)
     await eventFn()({
       event: { type: "session.end", properties: { sessionID: "conc-sub-1" } },
     });
 
-    // Now only 1 active subagent — the next Task call should succeed
+    // Now only 1 active subagent — a new Task call should succeed
     await expect(
       toolBeforeFn()(
         { tool: "Task", sessionID: parentSid },
@@ -1358,7 +1410,7 @@ describe("session.end cleanup — subagent tracking state", () => {
   it("cleans up pendingSubagentSpawns on session.end", async () => {
     const sid = "test-cleanup-spawns";
     _pendingSubagentSpawnsForTest.set(sid, [
-      { timestamp: Date.now(), subagentType: "engineer", description: "test" },
+      { timestamp: Date.now(), subagentType: "engineer", description: "test", callId: "" },
     ]);
 
     await eventFn()({

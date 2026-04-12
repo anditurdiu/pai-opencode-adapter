@@ -64,9 +64,14 @@ const INJECTION_PATTERNS: InjectionPattern[] = [
   { pattern: /bypass\s+(safety|security|content)\s+(filter|check|policy)/i, category: "safety_bypass", severity: "BLOCK" },
 
   // Category 6: MCP Tool Injection (crafted tool names/args attempting code exec)
+  // Semicolon-before-dangerous-command stays BLOCK — genuinely suspicious in any prompt/message field.
   { pattern: /;\s*(rm|dd|mkfs|chmod|chown|curl|wget|bash|sh|python|node|eval)\s/i, category: "mcp_tool_injection", severity: "BLOCK" },
-  { pattern: /\$\([^)]{0,100}\)/i, category: "mcp_tool_injection", severity: "BLOCK" },
-  { pattern: /`[^`]{0,100}`/i, category: "mcp_tool_injection", severity: "BLOCK" },
+  // $() and backtick are downgraded to WARN — both are normal bash and markdown syntax that appear
+  // constantly in legitimate AI-generated output (shell docs, code examples, command flags).
+  // These are only checked on untrusted fields; AI-generated fields (command, content, etc.) are
+  // excluded via TRUSTED_TOOL_FIELDS below.
+  { pattern: /\$\([^)]{0,100}\)/i, category: "mcp_tool_injection", severity: "WARN" },
+  { pattern: /`[^`]{0,100}`/i, category: "mcp_tool_injection", severity: "WARN" },
 
   // Category 7: PII/Credential Leaks (WARN only — detect, don't block)
   { pattern: /\b\d{3}-\d{2}-\d{4}\b/, category: "pii_credential_leak", severity: "WARN" },
@@ -76,7 +81,33 @@ const INJECTION_PATTERNS: InjectionPattern[] = [
   { pattern: /\bapi[_-]?key\s*[:=]\s*\S+/i, category: "pii_credential_leak", severity: "WARN" },
 ];
 
-// ─── 4-Step Sanitization Pipeline ────────────────────────────────────────────
+// ─── Per-Tool Trusted Fields ─────────────────────────────────────────────────
+//
+// Threat model: injection attacks originate from EXTERNAL content (web pages,
+// API responses, scraped data) that gets embedded into tool arguments before
+// the AI executes a tool. We want to catch that.
+//
+// What we do NOT want to block: AI-generated output. When the AI writes a file,
+// runs a shell command, or delegates a task to a sub-agent, those fields contain
+// expected shell syntax ($(), backticks), markdown, and code. Scanning them
+// produces false positives and breaks legitimate workflows.
+//
+// Fields listed here are SKIPPED entirely for the named tool. Tool names are
+// matched case-insensitively.
+//
+const TRUSTED_TOOL_FIELDS: Record<string, Set<string>> = {
+  // File writes: content is AI-generated; shell syntax in docs is expected.
+  write: new Set(["content", "filePath"]),
+  // File edits: both sides of the replacement are AI-generated.
+  edit: new Set(["oldString", "newString", "filePath"]),
+  // Shell commands: the AI composes these; $() is normal bash.
+  bash: new Set(["command"]),
+  // Task delegation: sub-agent prompts are AI-composed; shell examples are fine.
+  // Keep scanning for jailbreak patterns via categories 1–5 in other fields.
+  task: new Set(["prompt"]),
+};
+
+
 
 export function sanitizeInput(text: string): string {
   let result = text;
@@ -196,8 +227,11 @@ export async function inputValidationHandler(
   try {
     const args = output.args ?? {};
     const scanFields = ["command", "content", "prompt", "message", "input", "query", "text"];
+    const trustedFields = TRUSTED_TOOL_FIELDS[tool.toLowerCase()] ?? new Set<string>();
 
     for (const field of scanFields) {
+      if (trustedFields.has(field)) continue; // AI-generated output — skip injection scan
+
       const value = args[field];
       if (typeof value !== "string" || value.length === 0) continue;
 

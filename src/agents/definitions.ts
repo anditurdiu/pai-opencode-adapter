@@ -31,6 +31,7 @@ const PHANTOM_PROMPT_FILES: Record<string, string> = {
 	GeneralPurpose: "general-purpose.md",
 	Plan: "plan.md",
 	Pentester: "pentester.md",
+	explore: "explore.md",
 };
 
 // ── Types ─────────────────────────────────────────────────
@@ -441,11 +442,47 @@ const KNOWN_AGENT_PROFILES: Record<string, { permission: AgentPermission; defaul
 			mode: "subagent",
 		},
 	},
+
+	// OpenCode's built-in "explore" agent type — overridden here to give it its own
+	// read-only prompt and permissions instead of inheriting the primary agent's context.
+	explore: {
+		permission: {
+			read: { ...ENV_SAFE_READ },
+			edit: "deny",
+			bash: {
+				"*": "deny",
+				"grep *": "allow",
+				"rg *": "allow",
+				"git status*": "allow",
+				"git log*": "allow",
+				"git show*": "allow",
+				"git diff*": "allow",
+				"git blame*": "allow",
+				"git branch*": "allow",
+				"git rev-parse*": "allow",
+				"git -C *": "allow",
+				"wc *": "allow",
+				"find *": "allow",
+			},
+			task: "deny",
+			skill: "allow",
+			webfetch: "deny",
+			question: "deny",
+			external_directory: { ...BASE_EXTERNAL_DIR },
+		},
+		defaults: {
+			description: "Fast agent specialized for exploring codebases. Use for finding files by patterns, searching code for keywords, and answering questions about codebase structure.",
+			color: "#22C55E",
+			temperature: 0.1,
+			steps: 30,
+			mode: "subagent",
+		},
+	},
 };
 
 // ── Auto-Discovery ────────────────────────────────────────
 
-const PHANTOM_AGENTS = ["GeneralPurpose", "Plan"]; // Pentester is now a "known" agent via Pentester.md
+const PHANTOM_AGENTS = ["GeneralPurpose", "Plan", "explore"]; // Pentester is now a "known" agent via Pentester.md
 
 function getPaiAgentsDir(): string {
 	return join(getPAIDir(), "skills", "Agents");

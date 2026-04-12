@@ -318,9 +318,17 @@ interface PendingSpawnEntry {
   timestamp: number;
   subagentType: string;
   description: string;
+  callId: string; // callID from tool.execute.before — used for completion correlation
 }
 
 const pendingSubagentSpawns = new Map<string, PendingSpawnEntry[]>();
+
+// Maps Task callID → subagent session ID.
+// Set when a subagent session is detected (session.created) and consumed in
+// tool.execute.after when the Task call completes — this is the primary
+// mechanism for cleaning up subagentTracking entries, since OpenCode never
+// fires session.end for subagent sessions.
+const subagentCallIdToSid = new Map<string, string>();
 
 /**
  * Check whether a session ID is a known sub-agent session.
@@ -349,6 +357,7 @@ export const __testInternals = {
   subagentSessions,
   pendingSubagentSpawns,
   subagentTracking,
+  subagentCallIdToSid,
   SPAWN_TIMEOUT_MS,
   STALL_TIMEOUT_MS,
   getStalledSubagentWarnings,
@@ -613,11 +622,13 @@ export const PaiPlugin = async (ctx: PluginInput) => {
       if (sid && (toolName === "task" || toolName === "Task")) {
         const spawnSubagentType = String(args.subagent_type ?? args.type ?? "unknown");
         const spawnDescription = String(args.description ?? args.prompt ?? "").slice(0, 80);
+        const spawnCallId = String(input.callID ?? input.callId ?? "");
         const queue = pendingSubagentSpawns.get(sid) ?? [];
         queue.push({
           timestamp: Date.now(),
           subagentType: spawnSubagentType,
           description: spawnDescription,
+          callId: spawnCallId,
         });
         pendingSubagentSpawns.set(sid, queue);
         fileLog(
@@ -657,11 +668,10 @@ export const PaiPlugin = async (ctx: PluginInput) => {
         }
 
         // ── Max concurrent subagent guard ──
-        // OpenCode has a known bug where spawning more than 2 concurrent
-        // subagents from the same primary session causes stalls, incorrect
-        // status tracking, and frozen sessions. We enforce a hard limit of 2
-        // concurrent subagents per primary session and fail fast with a clear
-        // message so the LLM queues tasks sequentially instead.
+        // Limits concurrent subagents per primary session. Previously set to 2
+        // due to an OpenCode stall bug; now raised to 4 because subagent tracking
+        // is properly cleaned up via callID correlation in tool.execute.after
+        // (OpenCode never fires session.end for subagent sessions).
         //
         // Only applies to primary sessions — subagent sessions are already
         // blocked from calling Task via the context isolation layer.
@@ -669,14 +679,12 @@ export const PaiPlugin = async (ctx: PluginInput) => {
           const activeSubagentsForParent = [...subagentTracking.values()].filter(
             (info) => info.parentSessionId === sid,
           ).length;
-          if (activeSubagentsForParent >= 2) {
+          if (activeSubagentsForParent >= 4) {
             const reason =
-              `Max concurrent subagent limit (2) reached for this session. ` +
-              `This is a workaround for a known OpenCode bug where 3+ concurrent subagents ` +
-              `cause stalls and frozen sessions. Wait for a running subagent to complete, ` +
-              `then spawn the next one.`;
+              `Max concurrent subagent limit (4) reached for this session. ` +
+              `Wait for a running subagent to complete, then spawn the next one.`;
             fileLog(
-              `[concurrency-guard] BLOCKED Task call: ${activeSubagentsForParent} active subagents for ${sid.slice(0, 8)}, max is 2`,
+              `[concurrency-guard] BLOCKED Task call: ${activeSubagentsForParent} active subagents for ${sid.slice(0, 8)}, max is 4`,
               "warn",
             );
             // Undo the pending spawn we just pushed before throwing
@@ -752,6 +760,29 @@ export const PaiPlugin = async (ctx: PluginInput) => {
           `[skill-tracker] AFTER task invocation: subagent_type="${subagentType}" desc="${taskDesc}" session=${sidAfter.slice(0, 8)}`,
           "info",
         );
+
+        // ── Subagent completion cleanup via callID ──
+        // OpenCode never fires session.end for subagent sessions, so we clean up
+        // subagentTracking here instead — when the Task tool call returns on the
+        // parent session, exactly one subagent has finished. We correlate by callID
+        // (stored in subagentCallIdToSid when the subagent session was detected).
+        const callIdAfter = String(input.callID ?? input.callId ?? "");
+        if (callIdAfter) {
+          const completedSubagentSid = subagentCallIdToSid.get(callIdAfter);
+          if (completedSubagentSid) {
+            safeHandler("cleanup.completedSubagent", () => {
+              subagentTracking.delete(completedSubagentSid);
+              subagentSessions.delete(completedSubagentSid);
+              subagentCallIdToSid.delete(callIdAfter);
+              loopDetectionState.delete(completedSubagentSid);
+              clearSubagentType(completedSubagentSid);
+              fileLog(
+                `[subagent-timing] Cleaned up completed subagent ${completedSubagentSid.slice(0, 8)} via callId correlation (type: ${subagentType})`,
+                "info",
+              );
+            });
+          }
+        }
       }
 
       // Voice notification — skip TTS for raw tool names ("bash", "read", etc.)
@@ -1047,6 +1078,18 @@ export const PaiPlugin = async (ctx: PluginInput) => {
             // Register in shared agent-type-registry for cross-module access
             registerSubagentType(sid, detectedSpawnInfo?.subagentType ?? "unknown");
 
+            // Store callId → subagentSid for completion-based cleanup.
+            // tool.execute.after fires when the Task call returns (subagent done),
+            // and we use this map to find which session to remove from subagentTracking.
+            // This is necessary because OpenCode never fires session.end for subagents.
+            if (detectedSpawnInfo?.callId) {
+              subagentCallIdToSid.set(detectedSpawnInfo.callId, sid);
+              fileLog(
+                `[subagent-timing] Linked callId ${detectedSpawnInfo.callId.slice(0, 12)} → subagent ${sid.slice(0, 8)} for completion cleanup`,
+                "debug",
+              );
+            }
+
             fileLog(
               `[subagent-timing] Sub-agent session ${sid.slice(0, 8)} detected via Task-call timing from parent ${parentSid.slice(0, 8)} (type: ${detectedSpawnInfo?.subagentType ?? "unknown"})`,
               "info",
@@ -1163,6 +1206,13 @@ export const PaiPlugin = async (ctx: PluginInput) => {
           safeHandler("cleanup.prdBinding", () => statuslineClearPRDBinding(sid));
           safeHandler("cleanup.agentTypeRegistry", () => clearSubagentType(sid));
           safeHandler("cleanup.namingState", () => clearNamingState(sid));
+          // Sweep any callId→subagentSid entries where this sid is the subagent
+          // (covers the rare case where session.end fires before tool.execute.after)
+          safeHandler("cleanup.callIdMap", () => {
+            for (const [callId, subSid] of subagentCallIdToSid.entries()) {
+              if (subSid === sid) subagentCallIdToSid.delete(callId);
+            }
+          });
         }
       }
 
