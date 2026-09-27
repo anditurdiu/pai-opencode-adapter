@@ -9,6 +9,7 @@ import type { MessageRow } from "./exchanges.js";
 const user = (id: string): MessageRow => ({ info: { id, sessionID: "main", role: "user", time: { created: 1 } }, parts: [{ type: "text", text: "I prefer short summaries <private>hidden</private>" }] });
 const assistant = (id: string, complete = true): MessageRow => ({ info: { id, sessionID: "main", role: "assistant", parentID: "u1", finish: "stop", time: { created: 2, ...(complete ? { completed: 3 } : {}) } }, parts: [{ type: "text", text: "Acknowledged." }] });
 const setup = (messages: MessageRow[], parentID?: string) => ({ session: { get: async () => ({ data: { parentID } }), messages: async () => ({ data: messages }) } });
+const prepare = async () => ({ target: "/fixture/canonical.md", beforeDigest: "0".repeat(64) });
 
 test("only completed primary exchanges review; replay yields no extra write", async () => {
   const journal = new ReviewJournal(mkdtempSync(join(tmpdir(), "lifeos-scheduler-")));
@@ -16,7 +17,7 @@ test("only completed primary exchanges review; replay yields no extra write", as
   let reviews = 0, writes = 0;
   const params = { sessionID: "main", client, journal, reviewerIDs: new Set<string>(),
     review: async () => { reviews++; return { ok: true as const, result: { disposition: "noop" as const }, providerID: "fixture", modelID: "fixture" }; },
-    apply: async () => { writes++; return { ok: true }; } };
+    apply: async () => { writes++; return { ok: true }; }, prepare };
   expect((await reviewPrimaryIdle(params)).attempts).toBe(1);
   expect((await reviewPrimaryIdle(params)).attempts).toBe(0);
   expect([reviews, writes]).toEqual([1, 0]);
@@ -29,7 +30,7 @@ test("failed review retries; a candidate is dispatched only to the supplied gove
   const params = { sessionID: "main", client, journal, reviewerIDs: new Set<string>(),
     review: async () => { count++; return count === 1 ? { ok: false as const, reason: "provider-failed" }
       : { ok: true as const, result: { disposition: "candidate" as const, item: { type: "memory", actor: "principal", content: "PREFERENCE: short" } }, providerID: "fixture", modelID: "fixture" }; },
-    apply: async () => { writes++; return { ok: true }; } };
+    apply: async () => { writes++; return { ok: true }; }, prepare };
   await reviewPrimaryIdle(params); await reviewPrimaryIdle(params);
   expect(count).toBe(2);
   expect(writes).toBe(1);
@@ -95,7 +96,7 @@ test("governance refusal is recorded once and repeated idle does not reapply a p
   let writes = 0;
   const params = { sessionID: "main", client: setup([user("u1"), assistant("a1")]), journal, reviewerIDs: new Set<string>(),
     review: async () => ({ ok: true as const, result: { disposition: "candidate" as const, item: { type: "proposal", target_file: "/forbidden", edit: "fixture" } }, providerID: "fixture", modelID: "fixture" }),
-    apply: async () => { writes++; return { ok: false, code: "governance_refused" }; } };
+    apply: async () => { writes++; return { ok: false, code: "governance_refused" }; }, prepare };
   expect((await reviewPrimaryIdle(params)).state).toBe("blocked");
   await reviewPrimaryIdle(params);
   expect(writes).toBe(1);

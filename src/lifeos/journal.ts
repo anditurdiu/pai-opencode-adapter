@@ -5,7 +5,7 @@ import { join } from "node:path";
 import type { Feedback } from "./feedback.js";
 
 export type Disposition = "pending" | "reviewing" | "applying" | "succeeded" | "noop" | "failed-retryable" | "blocked-governance" | "uncertain-write";
-export interface SpanState { sessionID: string; userID: string; assistantIDs: string[]; status: Disposition; attempts: number; updated: string; itemDigest?: string; errorCode?: string }
+export interface SpanState { sessionID: string; userID: string; assistantIDs: string[]; status: Disposition; attempts: number; updated: string; itemDigest?: string; target?: string; beforeDigest?: string; errorCode?: string }
 const digest = (value: string) => createHash("sha256").update(value).digest("hex");
 const terminal = new Set<Disposition>(["succeeded", "noop", "blocked-governance"]);
 
@@ -103,6 +103,7 @@ export class ReviewJournal {
   async process(identity: { sessionID: string; userID: string; assistantIDs: string[] },
     review: () => Promise<{ type: "noop" } | { type: "item"; item: unknown }>,
     apply: (item: unknown) => Promise<{ ok: boolean; code?: string }>,
+    prepare?: (item: unknown) => Promise<{ target: string; beforeDigest: string }>,
   ): Promise<SpanState | { status: "contended" }> {
     const key = spanKey(identity.sessionID, identity.userID, identity.assistantIDs);
     // Keep the per-span lock over async inference/write. Other sessions have
@@ -116,7 +117,12 @@ export class ReviewJournal {
         const outcome = await review();
         if (outcome.type === "noop") { state = { ...state, status: "noop", updated: new Date().toISOString() }; this.save(key, state); return state; }
         const itemDigest = digest(JSON.stringify(outcome.item));
-        state = { ...state, status: "applying", itemDigest, updated: new Date().toISOString() }; this.save(key, state);
+        // A writer with no pre-dispatch target proof may not be enabled. The
+        // intent row is durable before invoking the canonical mutation.
+        if (!prepare) throw new Error("canonical target preflight missing");
+        const pinned = await prepare(outcome.item);
+        if (!pinned.target || !/^[a-f0-9]{64}$/.test(pinned.beforeDigest)) throw new Error("invalid canonical target preflight");
+        state = { ...state, status: "applying", itemDigest, target: pinned.target, beforeDigest: pinned.beforeDigest, updated: new Date().toISOString() }; this.save(key, state);
         let applied: { ok: boolean; code?: string };
         try { applied = await apply(outcome.item); }
         catch { state = { ...state, status: "uncertain-write", errorCode: "write-outcome-unknown", updated: new Date().toISOString() }; this.save(key, state); return state; }

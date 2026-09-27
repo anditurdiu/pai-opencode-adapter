@@ -31,6 +31,7 @@ export async function reviewPrimaryIdle(input: {
   sessionID: string; client: SessionAuthority; journal: ReviewJournal; reviewerIDs: ReadonlySet<string>;
   review: (exchange: { user: string; assistant: string; model?: { providerID: string; modelID: string } }, sessionID: string) => Promise<ReviewResult>;
   apply: (item: unknown) => Promise<{ ok: boolean; code?: string }>;
+  prepare?: (item: unknown) => Promise<{ target: string; beforeDigest: string }>;
 }): Promise<SchedulerResult> {
   if (input.reviewerIDs.has(input.sessionID)) return { state: "child", attempts: 0, olderUnreviewed: false };
   const session = await input.client.session.get({ path: { id: input.sessionID } });
@@ -60,7 +61,7 @@ export async function reviewPrimaryIdle(input: {
       if (!reviewed.ok) throw new Error(reviewed.reason);
       if (reviewed.result.disposition === "noop") return { type: "noop" };
       return { type: "item", item: reviewed.result.item };
-    }, input.apply);
+    }, input.apply, input.prepare);
     attempts++;
     if (outcome.status === "blocked-governance" || outcome.status === "uncertain-write") blocked = true;
   }

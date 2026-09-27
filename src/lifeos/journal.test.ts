@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { ReviewJournal, spanKey } from "./journal.js";
 const root = () => mkdtempSync(join(tmpdir(), "lifeos-journal-"));
 const identity = { sessionID: "session-a", userID: "user-1", assistantIDs: ["answer-1", "answer-2"] };
+const prepare = async () => ({ target: "/fixture/canonical-memory.md", beforeDigest: "0".repeat(64) });
 
 test("no-op and successful outcomes stay terminal across restart", async () => {
   const dir = root(); let reviews = 0, writes = 0;
@@ -15,8 +16,8 @@ test("no-op and successful outcomes stay terminal across restart", async () => {
   expect([reviews, writes]).toEqual([1, 0]);
   const next = { ...identity, userID: "user-2" };
   const item = async () => { reviews++; return { type: "item" as const, item: { type: "memory", content: "fixture" } }; };
-  expect((await new ReviewJournal(dir).process(next, item, apply)).status).toBe("succeeded");
-  expect((await new ReviewJournal(dir).process(next, item, apply)).status).toBe("succeeded");
+  expect((await new ReviewJournal(dir).process(next, item, apply, prepare)).status).toBe("succeeded");
+  expect((await new ReviewJournal(dir).process(next, item, apply, prepare)).status).toBe("succeeded");
   expect([reviews, writes]).toEqual([2, 1]);
   expect(new ReviewJournal(dir).statusCounts().succeeded).toBe(1);
   expect(new ReviewJournal(dir).statusCounts().noop).toBe(1);
@@ -32,6 +33,24 @@ test("a crash after intent-to-write cannot accidentally repeat append or curatio
   expect((await new ReviewJournal(dir).process(identity, async () => { called++; return { type: "noop" }; }, async () => ({ ok: true }))).status).toBe("uncertain-write");
 });
 
+test("writer without pinned target is refused before calling the canonical mutation", async () => {
+  const journal = new ReviewJournal(root()); let writes = 0;
+  const result = await journal.process(identity, async () => ({ type: "item", item: { type: "idea", title: "fixture", content: "fixture" } }), async () => { writes++; return { ok: true }; });
+  expect(result.status).toBe("failed-retryable");
+  expect(writes).toBe(0);
+});
+
+test("an applying intent persists target and pre-write digest before mutation is invoked", async () => {
+  const dir = root(), journal = new ReviewJournal(dir); let observed: any;
+  await journal.process(identity, async () => ({ type: "item", item: { type: "idea", title: "fixture", content: "fixture" } }), async () => {
+    observed = journal.read(spanKey(identity.sessionID, identity.userID, identity.assistantIDs));
+    return { ok: true };
+  }, prepare);
+  expect(observed.status).toBe("applying");
+  expect(observed.target).toBe("/fixture/canonical-memory.md");
+  expect(observed.beforeDigest).toBe("0".repeat(64));
+});
+
 test("an uncertain write is never retried on restart, even after another process claims the span", async () => {
   const dir = root(), key = spanKey(identity.sessionID, identity.userID, identity.assistantIDs);
   writeFileSync(join(dir, `${key}.json`), JSON.stringify({ ...identity, status: "uncertain-write", attempts: 1, updated: new Date().toISOString() }));
@@ -45,7 +64,7 @@ test("review failure is retryable; write exception is uncertain and never retrie
   const dir = root(); const journal = new ReviewJournal(dir);
   const failed = await journal.process(identity, async () => { throw Error("provider failed"); }, async () => ({ ok: true }));
   expect(failed.status).toBe("failed-retryable");
-  const uncertain = await journal.process(identity, async () => ({ type: "item", item: { content: "test" } }), async () => { throw Error("crash after write"); });
+  const uncertain = await journal.process(identity, async () => ({ type: "item", item: { content: "test" } }), async () => { throw Error("crash after write"); }, prepare);
   expect(uncertain.status).toBe("uncertain-write");
   expect(journal.read(spanKey(identity.sessionID, identity.userID, identity.assistantIDs))?.attempts).toBe(2);
 });
