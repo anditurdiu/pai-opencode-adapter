@@ -10,7 +10,7 @@ import { ReviewJournal } from "./journal.js";
 /** Observational plugin candidate. Reviewer/writes remain disabled until host gates pass. */
 export default (async ({ client, directory }) => {
   if (!process.env.HOME) throw new Error("LifeOS adapter requires HOME");
-  const configRoot = process.env.OPENCODE_CONFIG_DIR ?? join(process.env.HOME, ".config", "opencode");
+  const configRoot = join(process.env.HOME, ".config", "opencode");
   const userRoot = join(process.env.HOME, ".config", "LIFEOS", "USER"), memoryAlias = join(configRoot, "LIFEOS", "MEMORY");
   const roots = resolveRoots(configRoot, userRoot, memoryAlias);
   const skillRoot = join(configRoot, "skills");
