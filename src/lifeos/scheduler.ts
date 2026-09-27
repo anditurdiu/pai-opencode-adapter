@@ -4,9 +4,23 @@ import { stripPrivate, type ReviewResult } from "./reviewer.js";
 
 export interface SessionAuthority {
   session: {
+    list?(options?: { query?: { directory?: string } }): Promise<{ data?: { id: string; parentID?: string }[]; error?: unknown }>;
     get(options: { path: { id: string } }): Promise<{ data?: { parentID?: string }; error?: unknown }>;
     messages(options: { path: { id: string }; query: { limit: number } }): Promise<{ data?: MessageRow[]; error?: unknown }>;
   };
+}
+
+/** Startup pass never pretends that the bounded session-list/window covered older data. */
+export async function catchUpSessions(input: Omit<Parameters<typeof reviewPrimaryIdle>[0], "sessionID"> & { directory?: string; maxSessions?: number }) {
+  if (!input.client.session.list) return { state: "unavailable" as const, sessions: 0, truncated: true };
+  const result = await input.client.session.list({ query: { directory: input.directory } });
+  if (result.error || !result.data) return { state: "failed-fetch" as const, sessions: 0, truncated: true };
+  const max = input.maxSessions ?? 10;
+  if (!Number.isInteger(max) || max < 1 || max > 50) throw new Error("invalid catch-up session bound");
+  const primary = result.data.filter(session => !session.parentID && !input.reviewerIDs.has(session.id));
+  const selected = primary.slice(-max);
+  for (const session of selected) await reviewPrimaryIdle({ ...input, sessionID: session.id });
+  return { state: "attempted" as const, sessions: selected.length, truncated: primary.length > selected.length };
 }
 
 export interface SchedulerResult { state: "child" | "failed-fetch" | "waiting" | "backlog" | "reviewed" | "blocked"; attempts: number; olderUnreviewed: boolean }

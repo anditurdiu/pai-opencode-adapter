@@ -3,7 +3,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ReviewJournal } from "./journal.js";
-import { reviewPrimaryIdle } from "./scheduler.js";
+import { reviewPrimaryIdle, catchUpSessions } from "./scheduler.js";
 import type { MessageRow } from "./exchanges.js";
 
 const user = (id: string): MessageRow => ({ info: { id, sessionID: "main", role: "user", time: { created: 1 } }, parts: [{ type: "text", text: "I prefer short summaries <private>hidden</private>" }] });
@@ -53,4 +53,13 @@ test("a 80-message window reports older unreviewed work rather than marking all 
     apply: async () => ({ ok: true }) });
   expect(result.olderUnreviewed).toBe(true);
   expect(result.state).toBe("backlog");
+});
+
+test("startup catch-up bounds session count and reports overflow", async () => {
+  const journal = new ReviewJournal(mkdtempSync(join(tmpdir(), "lifeos-catchup-")));
+  const client = { session: { list: async () => ({ data: [{ id: "main" }, { id: "child", parentID: "main" }, { id: "main2" }] }),
+    get: async () => ({ data: {} }), messages: async () => ({ data: [] }) } };
+  const result = await catchUpSessions({ client, journal, reviewerIDs: new Set(), maxSessions: 1,
+    review: async () => ({ ok: true, result: { disposition: "noop" }, providerID: "fixture", modelID: "fixture" }), apply: async () => ({ ok: true }) });
+  expect(result).toEqual({ state: "attempted", sessions: 1, truncated: true });
 });
