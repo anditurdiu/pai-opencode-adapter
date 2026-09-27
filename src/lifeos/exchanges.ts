@@ -8,6 +8,7 @@ export function completeExchanges(sessionID: string, messages: MessageRow[], rev
   if (!sessionID || reviewerIDs.has(sessionID) || !Number.isInteger(limit) || limit < 2 || limit > 160) throw new Error("invalid exchange window");
   const window = messages.slice(-limit);
   const skippedOlder = messages.length > window.length;
+  const beginsWithAssistant = window[0]?.info.role === "assistant";
   const exchanges: Exchange[] = [];
   let user: MessageRow | undefined;
   let assistants: MessageRow[] = [];
@@ -26,6 +27,6 @@ export function completeExchanges(sessionID: string, messages: MessageRow[], rev
     }
   }
   flush();
-  return { exchanges: exchanges.filter(x => x.user && x.assistant), skippedOlder };
+  return { exchanges: exchanges.filter(x => x.user && x.assistant), skippedOlder: skippedOlder || beginsWithAssistant };
 }
 const plain = (message: MessageRow) => message.parts.filter(x => x.type === "text" && typeof x.text === "string").map(x => x.text).join("\n").trim().slice(0, 12_000);

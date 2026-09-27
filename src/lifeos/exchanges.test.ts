@@ -11,5 +11,6 @@ test("all assistant messages must finish without error; partial, child and idle 
   expect(completeExchanges("main", messages, new Set()).exchanges).toEqual([{ userID: "one", assistantIDs: ["a", "b"], user: "ask one", assistant: "answer a\nanswer b" }]);
   expect(() => completeExchanges("main", messages, new Set(["main"]))).toThrow();
   expect(completeExchanges("main", messages, new Set(), 2).skippedOlder).toBe(true);
+  expect(completeExchanges("main", [assistant("orphan"), user("fresh"), assistant("complete")], new Set()).skippedOlder).toBe(true);
   expect(completeExchanges("main", [user("mixed"), assistant("bad", { completed: false }), assistant("good")], new Set()).exchanges).toHaveLength(0);
 });

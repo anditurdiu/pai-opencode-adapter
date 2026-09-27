@@ -10,6 +10,36 @@ const text = (path: string, limit: number) => {
 const field = (source: string, label: string) => source.match(new RegExp(`^- \\*\\*${label}:\\*\\*\\s*(.+)$`, "m"))?.[1]?.trim();
 const section = (source: string, label: string) => source.match(new RegExp(`^## ${label}\\b([^#]*)`, "m"))?.[1]?.trim();
 
+/** Caller passes the canonical record ID and content returned by Cortex.get. */
+export function relevantContext(records: { id: string; content: string; provenance: { path: string }; score: number }[], maxChars = 1600) {
+  if (!Number.isInteger(maxChars) || maxChars < 1 || maxChars > 4096) throw new Error("invalid retrieval budget");
+  let remaining = maxChars;
+  const selected: { id: string; path: string; text: string }[] = [];
+  for (const record of records.slice(0, 3)) {
+    if (!Number.isFinite(record.score) || record.score <= 0 || !record.id || !record.provenance.path) continue;
+    const text = record.content.replace(/^---[\s\S]*?---\s*/, "").trim().slice(0, Math.min(600, remaining));
+    if (!text) continue;
+    selected.push({ id: record.id, path: record.provenance.path, text }); remaining -= text.length;
+    if (remaining <= 0) break;
+  }
+  return selected;
+}
+
+/** The canonical Cortex read commands provide cards first and selected full records second. */
+export async function searchCanonical(cortex: { run(args: string[]): Promise<{ exitCode: number; envelope: { ok: boolean; data: any } }> }, query: string) {
+  const text = query.trim().slice(0, 512);
+  if (text.length < 3) return [];
+  const found = await cortex.run(["search", text, "--adapter", "opencode", "--page-size", "3"]);
+  if (found.exitCode !== 0 || !found.envelope.ok) return [];
+  const cards = found.envelope.data?.items;
+  if (!Array.isArray(cards)) return [];
+  const wanted = cards.filter(card => card && typeof card.id === "string" && card.score > 0).slice(0, 3);
+  if (!wanted.length) return [];
+  const obtained = await cortex.run(["get", ...wanted.map(card => card.id), "--adapter", "opencode"]);
+  if (obtained.exitCode !== 0 || !obtained.envelope.ok || !Array.isArray(obtained.envelope.data?.items)) return [];
+  return relevantContext(obtained.envelope.data.items.map((record: any) => ({ ...record, score: wanted.find(card => card.id === record.id)?.score ?? 0 })));
+}
+
 /** Read-side replacement probe candidate. All supplied roots must have been validated. */
 export function readTurnContext(roots: ContextRoots, now = Date.now()): ContextResult {
   const blocks: string[] = [];
