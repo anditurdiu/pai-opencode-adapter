@@ -75,6 +75,17 @@ test("a bare rating never creates a durable memory candidate", async () => {
   expect(called).toBe(0);
 });
 
+test("governance refusal is recorded once and repeated idle does not reapply a proposal", async () => {
+  const journal = new ReviewJournal(mkdtempSync(join(tmpdir(), "lifeos-governance-")));
+  let writes = 0;
+  const params = { sessionID: "main", client: setup([user("u1"), assistant("a1")]), journal, reviewerIDs: new Set<string>(),
+    review: async () => ({ ok: true as const, result: { disposition: "candidate" as const, item: { type: "proposal", target_file: "/forbidden", edit: "fixture" } }, providerID: "fixture", modelID: "fixture" }),
+    apply: async () => { writes++; return { ok: false, code: "governance_refused" }; } };
+  expect((await reviewPrimaryIdle(params)).state).toBe("blocked");
+  await reviewPrimaryIdle(params);
+  expect(writes).toBe(1);
+});
+
 test("review receives the actual selected model from the completed user's message", async () => {
   const journal = new ReviewJournal(mkdtempSync(join(tmpdir(), "lifeos-model-")));
   const message = user("model-turn"); message.info.model = { providerID: "fixture-provider", modelID: "fixture-model" };

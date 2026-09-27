@@ -46,7 +46,8 @@ export async function reviewPrimaryIdle(input: {
     // it never supplies a fabricated numeric score for a correction.
     const key = spanKey(input.sessionID, exchange.userID, exchange.assistantIDs);
     if (feedbackOnly(exchange.user)) continue;
-    if (input.journal.read(key)?.status === "succeeded" || input.journal.read(key)?.status === "noop") continue;
+    const prior = input.journal.read(key);
+    if (prior && ["succeeded", "noop", "blocked-governance", "uncertain-write"].includes(prior.status)) continue;
     const outcome = await input.journal.process({ sessionID: input.sessionID, userID: exchange.userID, assistantIDs: exchange.assistantIDs }, async () => {
       const source = messages.data!.find(message => message.info.id === exchange.userID);
       const model = source && "model" in source.info ? source.info.model as { providerID: string; modelID: string } : undefined;
