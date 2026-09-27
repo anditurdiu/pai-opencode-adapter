@@ -12,8 +12,8 @@ export default (async ({ client, directory }) => {
   const configRoot = process.env.OPENCODE_CONFIG_DIR;
   if (!configRoot) throw new Error("LifeOS adapter requires an explicit OpenCode config root");
   if (!process.env.HOME) throw new Error("LifeOS adapter requires HOME");
-  const userAlias = join(configRoot, "LIFEOS", "USER"), memoryAlias = join(configRoot, "LIFEOS", "MEMORY");
-  const roots = resolveRoots(configRoot, userAlias, memoryAlias);
+  const userRoot = join(process.env.HOME!, ".config", "LIFEOS", "USER"), memoryAlias = join(configRoot, "LIFEOS", "MEMORY");
+  const roots = resolveRoots(configRoot, userRoot, memoryAlias);
   const skillRoot = join(configRoot, "skills");
   if (!existsSync(skillRoot)) throw new Error("LifeOS installed skills are missing");
   const bridge = createReadBridge({ ...roots, skillRoot });

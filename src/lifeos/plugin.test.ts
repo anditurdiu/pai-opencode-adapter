@@ -6,7 +6,7 @@ import plugin from "./plugin.js";
 
 test("actual plugin hooks inject primary-only context while retaining system/parts", async () => {
   const home = mkdtempSync(join(tmpdir(), "lifeos-plugin-"));
-  const configRoot = join(home, ".config", "opencode"), personal = join(home, "personal"), memory = join(configRoot, "LIFEOS", "MEMORY");
+  const configRoot = join(home, ".config", "opencode"), personal = join(home, ".config", "LIFEOS", "USER"), memory = join(configRoot, "LIFEOS", "MEMORY");
   mkdirSync(join(configRoot, "LIFEOS"), { recursive: true });
   mkdirSync(join(configRoot, "skills", "ISA"), { recursive: true });
   mkdirSync(join(personal, "PRINCIPAL"), { recursive: true }); mkdirSync(memory);

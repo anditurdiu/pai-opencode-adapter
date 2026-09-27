@@ -25,7 +25,7 @@ export function readTurnContext(roots: ContextRoots, now = Date.now()): ContextR
   for (const [actor, file] of [["principal", join(roots.userRoot, "PRINCIPAL", "PRINCIPAL_MEMORY.md")],
     ["assistant", join(roots.userRoot, "DIGITAL_ASSISTANT", "DA_MEMORY.md")]] as const) {
     const hot = text(file, 4096).trim();
-    if (hot) blocks.push(`LifeOS ${actor} hot memory:\n${hot}`);
+    if (hot && !/provenance:\s*template/.test(hot)) blocks.push(`LifeOS ${actor} hot memory:\n${hot}`);
   }
   // Tail-bounded: a partial first row cannot become a valid new signal.
   const ratingPath = join(roots.memoryRoot, "LEARNING", "SIGNALS", "ratings.jsonl");

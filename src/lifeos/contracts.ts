@@ -18,7 +18,7 @@ export function resolveRoots(configRoot: string, userRoot: string, memoryRoot: s
       throw new Error(`${label} must be an existing directory`);
   }
   const roots = { configRoot: realpathSync(configRoot), userRoot: realpathSync(userRoot), memoryRoot: realpathSync(memoryRoot) };
-  if (roots.configRoot === roots.userRoot || roots.configRoot === roots.memoryRoot)
+  if (roots.configRoot === roots.userRoot || roots.configRoot === roots.memoryRoot || roots.userRoot === roots.memoryRoot)
     throw new Error("Configuration and authority roots must be distinct");
   return roots;
 }

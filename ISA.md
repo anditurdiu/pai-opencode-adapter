@@ -5,7 +5,7 @@ project: pai-opencode-adapter
 phase: climbing
 progress: 0/28
 started: 2026-09-27T10:08:32Z
-updated: 2026-09-27T10:58:01Z
+updated: 2026-09-27T11:00:43Z
 principal_stated_goal: "Build one LifeOS-specific OpenCode integration, deliverable on the Mac and Proxmox host, that closes a verifiable local loop:"
 principal_stated_goal_source: prompt
 principal_stated_goal_signal: 4
@@ -157,6 +157,7 @@ Why: once verified, an upstream or host change cannot silently invalidate the lo
 - 2026-09-27: Plugin fixture now captures feedback by session/message identity and excludes synthetic and child-session parts; a supplementary pre-tool hook throws for attempts to redirect canonical writer roots. These are fixture observations, not live OpenCode permission or feedback-persistence parity.
 - 2026-09-27: Proxmox SSH access is available, but the probed root account has no OpenCode/Bun executable on PATH and no observed LifeOS/OpenCode roots. Adapter rollout on that host awaits identifying its actual installation account or container; no installation was attempted.
 - 2026-09-27: Refined host target after checking the principal's vault reference: the target is the `zhuli` account on VM 104 (the OpenClaw-delivery VM with OpenCode+LifeOS), not the Proxmox hypervisor root. VM read-only discovery found OpenCode and Bun installed, a linked personal USER tree and MEMORY tree, but no `LIFEOS/USER` alias under OpenCode config. Writer roots now resolve the personal tree directly; VM rollout remains open pending independent tests.
+- 2026-09-27: Corrected the read-side plugin candidate to use the personal USER root independently of MEMORY, excluded template-only hot memory, and proved an off-path payload does not shadow top-level ISA in an isolated scanner fixture. Installer/update integration for off-path payload remains open; no live plugin switch occurred.
 
 ## Remaining Work
 
