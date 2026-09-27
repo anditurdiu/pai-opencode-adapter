@@ -32,6 +32,15 @@ test("a crash after intent-to-write cannot accidentally repeat append or curatio
   expect((await new ReviewJournal(dir).process(identity, async () => { called++; return { type: "noop" }; }, async () => ({ ok: true }))).status).toBe("uncertain-write");
 });
 
+test("an uncertain write is never retried on restart, even after another process claims the span", async () => {
+  const dir = root(), key = spanKey(identity.sessionID, identity.userID, identity.assistantIDs);
+  writeFileSync(join(dir, `${key}.json`), JSON.stringify({ ...identity, status: "uncertain-write", attempts: 1, updated: new Date().toISOString() }));
+  let calls = 0;
+  const result = await new ReviewJournal(dir).process(identity, async () => { calls++; return { type: "noop" }; }, async () => { calls++; return { ok: true }; });
+  expect(result.status).toBe("uncertain-write");
+  expect(calls).toBe(0);
+});
+
 test("review failure is retryable; write exception is uncertain and never retried", async () => {
   const dir = root(); const journal = new ReviewJournal(dir);
   const failed = await journal.process(identity, async () => { throw Error("provider failed"); }, async () => ({ ok: true }));
