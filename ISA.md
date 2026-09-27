@@ -5,7 +5,7 @@ project: pai-opencode-adapter
 phase: climbing
 progress: 0/29
 started: 2026-09-27T10:08:32Z
-updated: 2026-09-27T12:21:16Z
+updated: 2026-09-27T12:26:01Z
 principal_stated_goal: "Build one LifeOS-specific OpenCode integration, deliverable on the Mac and Proxmox host, that closes a verifiable local loop:"
 principal_stated_goal_source: prompt
 principal_stated_goal_signal: 4
@@ -176,6 +176,7 @@ Why: once verified, an upstream or host change cannot silently invalidate the lo
 - 2026-09-27: The read-side candidate now strips explicit private spans before skill routing, feedback classification and retrieval queries. Fixture verifies stripped text does not return through system context; native OpenCode transcript privacy remains outside this boundary.
 - 2026-09-27: Feedback journal now persists the exact explicit numeric rating with its session/message identity; praise, correction and directive remain unscored kinds and raw prompt text is omitted. A fixture verifies correction never receives a rating.
 - 2026-09-27: OpenCode bootstrap detects a home-installed Bun binary (needed for the second host's noninteractive SSH PATH), and still verifies syntax plus disposable install/update gates. Second host's existing binary and missing config/USER alias were independently rechecked read-only; no VM rollout occurred.
+- 2026-09-27: The candidate plugin's `noop` reviewer mode now has a plugin-hook fixture proving one completed primary exchange creates one SDK child review, reviewer idle is ignored, repeated primary idle does not repeat inference, and canonical writes remain blocked. Real-host mode activation and outcome health still require live probes.
 
 ## Remaining Work
 

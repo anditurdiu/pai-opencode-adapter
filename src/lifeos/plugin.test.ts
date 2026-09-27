@@ -46,3 +46,34 @@ test("actual plugin hooks inject primary-only context while retaining system/par
     if (savedHome === undefined) delete process.env.HOME; else process.env.HOME = savedHome;
   }
 });
+
+test("noop reviewer mode handles primary idle without writing canonical files", async () => {
+  const home = mkdtempSync(join(tmpdir(), "lifeos-idle-plugin-"));
+  const configRoot = join(home, ".config", "opencode"), userRoot = join(home, ".config", "LIFEOS", "USER"), memory = join(configRoot, "LIFEOS", "MEMORY");
+  mkdirSync(join(configRoot, "skills", "ISA"), { recursive: true }); mkdirSync(join(userRoot, "PRINCIPAL"), { recursive: true }); mkdirSync(memory, { recursive: true });
+  writeFileSync(join(configRoot, "skills", "ISA", "SKILL.md"), "---\nname: ISA\ndescription: fixture\n---\n");
+  const previous = { HOME: process.env.HOME, LIFEOS_OPENCODE_REVIEW_MODE: process.env.LIFEOS_OPENCODE_REVIEW_MODE };
+  process.env.HOME = home; process.env.LIFEOS_OPENCODE_REVIEW_MODE = "noop";
+  let prompts = 0;
+  const client = { session: {
+    get: async () => ({ data: { id: "primary" } }),
+    messages: async () => ({ data: [
+      { info: { id: "u", sessionID: "primary", role: "user", model: { providerID: "fixture", modelID: "fixture" }, time: { created: 1 } }, parts: [{ type: "text", text: "There is no durable fact" }] },
+      { info: { id: "a", sessionID: "primary", role: "assistant", finish: "stop", time: { created: 2, completed: 3 } }, parts: [{ type: "text", text: "Understood" }] },
+    ] }),
+    create: async () => ({ data: { id: "review-child" } }),
+    prompt: async () => { prompts++; return { data: { info: { providerID: "fixture", modelID: "fixture", time: { completed: 4 } }, parts: [{ type: "text", text: '{"disposition":"noop"}' }] } }; },
+    delete: async () => ({ data: true }), abort: async () => ({ data: true }),
+  } };
+  try {
+    const hooks = await plugin({ client, directory: configRoot } as any);
+    await hooks.event!({ event: { type: "session.idle", properties: { sessionID: "primary" } } } as any);
+    await hooks.event!({ event: { type: "session.idle", properties: { sessionID: "review-child" } } } as any);
+    await hooks.event!({ event: { type: "session.idle", properties: { sessionID: "primary" } } } as any);
+    expect(prompts).toBe(1);
+    expect(readFileSync(join(memory, "STATE", "opencode-feedback", "health.jsonl"), "utf8")).toContain('"code":"reviewed"');
+  } finally {
+    if (previous.HOME === undefined) delete process.env.HOME; else process.env.HOME = previous.HOME;
+    if (previous.LIFEOS_OPENCODE_REVIEW_MODE === undefined) delete process.env.LIFEOS_OPENCODE_REVIEW_MODE; else process.env.LIFEOS_OPENCODE_REVIEW_MODE = previous.LIFEOS_OPENCODE_REVIEW_MODE;
+  }
+});

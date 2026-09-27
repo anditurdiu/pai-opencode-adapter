@@ -8,6 +8,8 @@ import { classifyFeedback } from "./feedback.js";
 import { ReviewJournal } from "./journal.js";
 import { searchCanonical } from "./context.js";
 import { stripPrivate } from "./reviewer.js";
+import { reviewFixture } from "./reviewer.js";
+import { reviewPrimaryIdle } from "./scheduler.js";
 
 /** Observational plugin candidate. Reviewer/writes remain disabled until host gates pass. */
 export default (async ({ client, directory }) => {
@@ -21,6 +23,9 @@ export default (async ({ client, directory }) => {
   const journal = new ReviewJournal(join(memoryAlias, "STATE", "opencode-feedback"));
   journal.recordStatus("loaded", "read-side-ready");
   const queries = new Map<string, string>();
+  const reviewerIDs = new Set<string>();
+  const reviewMode = process.env.LIFEOS_OPENCODE_REVIEW_MODE;
+  if (reviewMode && reviewMode !== "noop") throw new Error("LifeOS review mode is not validated for governed writes");
   const cortex = async (args: string[]) => {
     const module = await import(join(configRoot, "LIFEOS", "TOOLS", "Cortex.ts"));
     return module.runCortex(args);
@@ -59,7 +64,20 @@ export default (async ({ client, directory }) => {
     "tool.execute.before": async (input, output) => { assertAllowedTool(input.tool, output.args); },
     event: async ({ event }) => {
       if (event.type === "session.deleted") { bridge.forget(event.properties.info.id); queries.delete(event.properties.info.id); }
-      if (event.type === "session.idle") journal.recordStatus("idle", "review-not-enabled");
+      if (event.type === "session.idle") {
+        if (!reviewMode) { journal.recordStatus("idle", "review-not-enabled"); return; }
+        if (reviewerIDs.has(event.properties.sessionID)) return;
+        const outcome = await reviewPrimaryIdle({
+          sessionID: event.properties.sessionID, client, journal, reviewerIDs,
+          review: (exchange, sessionID) => exchange.model
+            ? reviewFixture(client, { sessionID, exchange: `User: ${exchange.user}\nAssistant: ${exchange.assistant}`, memory: "", model: exchange.model }, id => reviewerIDs.add(id))
+            : Promise.resolve({ ok: false as const, reason: "model-unavailable" }),
+          // Provider output cannot mutate authority in this mode. A candidate
+          // remains blocked in the journal rather than becoming an invisible no-op.
+          apply: async () => ({ ok: false, code: "review-writes-disabled" }),
+        });
+        journal.recordStatus("review-result", outcome.state);
+      }
     },
   };
 }) satisfies Plugin;
