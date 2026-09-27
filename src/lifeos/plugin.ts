@@ -36,7 +36,7 @@ export default (async ({ client, directory }) => {
       const feedback = classifyFeedback(stripPrivate(parts.filter(part => part.type === "text").map(part => part.text ?? "").join("\n")));
       const messageID = input.messageID ?? output.message?.id;
       if (feedback.kind !== "none" && messageID) {
-        journal.recordFeedback(input.sessionID, messageID, feedback.kind);
+        journal.recordFeedback(input.sessionID, messageID, feedback);
       }
     },
     "experimental.chat.system.transform": async (input, output) => {

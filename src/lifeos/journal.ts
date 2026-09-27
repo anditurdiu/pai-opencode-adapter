@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, readdirSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { hostname } from "node:os";
 import { join } from "node:path";
+import type { Feedback } from "./feedback.js";
 
 export type Disposition = "pending" | "reviewing" | "applying" | "succeeded" | "noop" | "failed-retryable" | "blocked-governance" | "uncertain-write";
 export interface SpanState { sessionID: string; userID: string; assistantIDs: string[]; status: Disposition; attempts: number; updated: string; itemDigest?: string; errorCode?: string }
@@ -34,14 +35,18 @@ export class ReviewJournal {
       try { const dir = openSync(this.root, "r"); try { fsyncSync(dir); } finally { closeSync(dir); } } catch { /* unsupported on some filesystems */ }
     } catch (e) { try { unlinkSync(temp); } catch {} throw e; }
   }
-  recordFeedback(sessionID: string, messageID: string, kind: string): boolean {
-    if (!sessionID || !messageID || !["rating", "praise", "correction", "directive"].includes(kind)) return false;
+  recordFeedback(sessionID: string, messageID: string, signal: Feedback): boolean {
+    if (!sessionID || !messageID || signal.kind === "none") return false;
     const key = digest(JSON.stringify(["feedback", sessionID, messageID]));
     const file = join(this.root, `${key}.feedback.json`);
-    try { writeFileSync(file, JSON.stringify({ sessionID, messageID, kind, capturedAt: new Date().toISOString() }), { flag: "wx", mode: 0o600 }); return true; }
+    // Never persist the prompt or a transcript excerpt. Only an explicit
+    // numeric rating is a score; praise, corrections and directives keep their
+    // distinct signal kind without inventing a rating.
+    const row = { sessionID, messageID, kind: signal.kind, ...(signal.kind === "rating" ? { rating: signal.value } : {}), capturedAt: new Date().toISOString() };
+    try { writeFileSync(file, JSON.stringify(row), { flag: "wx", mode: 0o600 }); return true; }
     catch (e: any) { if (e.code === "EEXIST") return false; throw e; }
   }
-  listFeedback(): Array<{ sessionID: string; messageID: string; kind: string; capturedAt: string }> {
+  listFeedback(): Array<{ sessionID: string; messageID: string; kind: string; rating?: number; capturedAt: string }> {
     return readdirSync(this.root).filter(name => name.endsWith(".feedback.json")).map(name => {
       const row = JSON.parse(readFileSync(join(this.root, name), "utf8"));
       if (!row || typeof row.sessionID !== "string" || typeof row.messageID !== "string" || typeof row.kind !== "string") throw new Error("invalid feedback row");

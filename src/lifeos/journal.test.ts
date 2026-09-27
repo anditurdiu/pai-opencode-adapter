@@ -55,10 +55,14 @@ test("simultaneous claims of one span have a single reviewer", async () => {
 
 test("feedback persists one classification per session/message, independent across sessions", () => {
   const dir = root(); const journal = new ReviewJournal(dir);
-  expect(journal.recordFeedback("one", "message", "correction")).toBe(true);
-  expect(new ReviewJournal(dir).recordFeedback("one", "message", "correction")).toBe(false);
-  expect(journal.recordFeedback("two", "message", "correction")).toBe(true);
-  expect(journal.recordFeedback("one", "other-message", "rating")).toBe(true);
+  expect(journal.recordFeedback("one", "message", { kind: "correction", text: "No, please correct this" })).toBe(true);
+  expect(new ReviewJournal(dir).recordFeedback("one", "message", { kind: "correction", text: "No, please correct this" })).toBe(false);
+  expect(journal.recordFeedback("two", "message", { kind: "correction", text: "No, please correct this" })).toBe(true);
+  expect(journal.recordFeedback("one", "other-message", { kind: "rating", value: 8 })).toBe(true);
+  const rows = journal.listFeedback();
+  expect(rows.find(row => row.messageID === "other-message")?.rating).toBe(8);
+  expect(rows.find(row => row.messageID === "message")?.rating).toBeUndefined();
+  expect(JSON.stringify(rows)).not.toContain("please correct this");
 });
 
 test("health marker logs only bounded codes, not raw transcript text", () => {
