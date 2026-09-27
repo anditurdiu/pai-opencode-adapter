@@ -44,6 +44,7 @@ export async function reviewPrimaryIdle(input: {
   // one-span cadence cap, an idle cannot flood inference or skip ahead of work
   // still pending within that window.
   const feedbackOnly = (text: string) => ["rating", "praise"].includes(classifyFeedback(text).kind);
+  if (projection.skippedOlder) return { state: "backlog", attempts: 0, olderUnreviewed: true };
   for (const exchange of projection.exchanges) {
     // Review only a completed exchange. Signal classification is per message;
     // it never supplies a fabricated numeric score for a correction.

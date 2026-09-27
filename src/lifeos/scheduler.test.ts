@@ -48,11 +48,13 @@ test("a 80-message window reports older unreviewed work rather than marking all 
   const journal = new ReviewJournal(mkdtempSync(join(tmpdir(), "lifeos-window-")));
   const messages: MessageRow[] = [];
   for (let i = 0; i < 41; i++) messages.push(user(`u${i}`), assistant(`a${i}`));
+  let invoked = 0;
   const result = await reviewPrimaryIdle({ sessionID: "main", client: setup(messages), journal, reviewerIDs: new Set(),
-    review: async () => ({ ok: true, result: { disposition: "noop" }, providerID: "fixture", modelID: "fixture" }),
+    review: async () => { invoked++; return { ok: true, result: { disposition: "noop" }, providerID: "fixture", modelID: "fixture" }; },
     apply: async () => ({ ok: true }) });
   expect(result.olderUnreviewed).toBe(true);
   expect(result.state).toBe("backlog");
+  expect(invoked).toBe(0);
 });
 
 test("one idle reviews at most one span and marks the remaining queue as backlog", async () => {
