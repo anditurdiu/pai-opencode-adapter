@@ -61,7 +61,7 @@ export async function reviewFixture(client: ReviewerClient, input: {
     const result = await Promise.race([
       client.session.prompt({ path: { id: sessionID }, body: {
         agent: "build", model: input.model,
-        tools: { bash: false, edit: false, write: false, apply_patch: false, task: false, webfetch: false },
+        tools: { "*": false },
         parts: [{ type: "text", text: `Return only JSON: {"disposition":"noop"} or {"disposition":"candidate","type":"memory|idea|knowledge|proposal","content":"..."}.\n${sanitized}` }],
       } }),
       new Promise<never>((_, reject) => { timeout = setTimeout(() => { timedOut = true; reject(new Error("timeout")); }, TIMEOUT_MS); timeout.unref?.(); }),

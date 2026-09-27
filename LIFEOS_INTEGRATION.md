@@ -1,13 +1,15 @@
 # LifeOS–OpenCode integration: current contract
 
-The project state of record is [ISA.md](ISA.md). Unchecked ISCs remain open. This repository currently contains a **read-only contract/inventory and reviewer-fixture foundation**, not an installed Cortex writer, complete plugin or live provider-verified reviewer. The older PAI plugin and documentation in this repository describe a different integration and do not establish LifeOS parity.
+The project state of record is [ISA.md](ISA.md). Unchecked ISCs remain open. This repository contains contract/inventory code, a read-side plugin candidate, an isolated reviewer carrier and a conservative per-span journal; none is registered as the Mac bridge yet. The older PAI plugin and documentation in this repository describe a different integration and do not establish LifeOS parity.
 
 ## Trust boundaries
 
 - OpenCode config, the LifeOS USER tree and the MEMORY tree are independently resolved roots. A legacy harness path in LifeOS documentation is never a writable fallback.
 - `src/lifeos/contracts.ts` inventories skill definitions recursively and reports nested collisions, missing frontmatter and selected effective paths. The effective selected paths must come from OpenCode discovery rather than guessing from the filesystem.
 - `snapshotContracts` records hashes and relative filenames only. Its comparison fails open *claims*, not contracts: changed writer/event/plugin fields block; other changes require review. The four synthetic mutation scenarios are in `contracts.test.ts`.
-- `reviewFixture` constructs an SDK-shaped child session with bounded sanitized input, disabled tools, typed response checks, selected-model comparison and teardown. The mock scenario is not evidence that a real OpenCode account is isolated or has run the chosen provider; the live reviewer gate remains open.
+- `reviewFixture` constructs an SDK child session with bounded sanitized input, all tools disabled, typed response checks, selected-model comparison and teardown. Host-local probes obtained typed no-ops from GitHub Copilot and ZAI on configured accounts, but have not proved plugin recursion suppression or full capture/write parity.
+- `ReviewJournal` persists one span's attempts and dispositions with per-span locks. A crash between write intent and recorded completion becomes `uncertain-write`: no automatic duplicate mutation, but human or deterministic read-back reconciliation is required before it can count as recovered.
+- `plugin.ts` is a read-side candidate exercised through the real plugin hook interface in a fixture. It is not registered or enabled for canonical mutations.
 - `completeExchanges` projects complete text exchanges from SDK-shaped message rows and flags a truncated fetch window. It is not a restart-safe transaction scheduler and cannot by itself prove that historical unreviewed messages were recovered.
 - Host manifests, selected paths, USER/MEMORY content, reviewer exchanges and operational reports belong outside this public repository. Never commit machine-local reports, credentials or customer data here.
 
@@ -21,4 +23,4 @@ The project state of record is [ISA.md](ISA.md). Unchecked ISCs remain open. Thi
 
 ## Fixture checks
 
-`bun test src/lifeos` exercises explicit roots, nested skill collision detection, event/skill/writer/overlay changes, distinct feedback signals, fresh/stale read-side context, complete exchange filtering and SDK-shaped reviewer scenarios. The contract checker has no update or install side effects. None of these pure fixtures establish a live plugin or a governed write; their matching ISA claims remain open until boundary probes pass.
+`bun test src/lifeos` exercises explicit roots, nested skill collisions, contract changes, distinct feedback signals, fresh/stale read-side context, completed exchange filtering, reviewer scenarios, span-restart/concurrency, and read-side plugin hooks. `bunx tsc --noEmit` checks the package. These fixtures alone do not establish a live capture-to-recall loop; matching ISA claims stay open until boundary probes pass.
