@@ -1,0 +1,159 @@
+---
+task: "Integrate LifeOS with OpenCode across supported hosts"
+slug: 20260927-lifeos-opencode-integration
+project: pai-opencode-adapter
+phase: marking
+progress: 0/28
+started: 2026-09-27T10:08:32Z
+updated: 2026-09-27T10:08:32Z
+principal_stated_goal: "Build one LifeOS-specific OpenCode integration, deliverable on the Mac and Proxmox host, that closes a verifiable local loop:"
+principal_stated_goal_source: prompt
+principal_stated_goal_signal: 4
+principal_stated_goal_locked: 2026-09-27T10:08:32Z
+context_sufficient: true
+interview_invoked: false
+---
+
+## Problem
+
+The installed OpenCode bridge supplies read-side context but has no verified feedback-to-Cortex-to-recall path. Existing Claude Code registrations and the older PAI adapter do not establish OpenCode parity by merely existing. Skill discovery, writer roots and reviewer isolation have unresolved compatibility boundaries.
+
+## Vision
+
+You correct me in one OpenCode conversation; the correction becomes a precisely classified signal, a completed exchange is reviewed without touching your visible session, an admissible fact lands in the canonical LifeOS authority and returns when relevant later. I can show exactly which plugin and skill were loaded, what was written, and what remains open on each machine.
+
+## Out of Scope
+
+- Shared cross-host Cortex until both local loops pass and conflict authority is decided.
+- Silent changes to unrelated agent definitions, providers, credentials, USER content, or the LifeOS skill tree.
+- Claiming a missing Proxmox, provider, stop-blocking or visual probe passed because a Mac fixture passed.
+
+## Principles
+
+- Authority lives in LifeOS USER/MEMORY and its typed governance, not in the adapter.
+- A behavior is verified only by evidence at its consumer boundary; unknown is not green.
+- Replaying the same exchange does not create the same mutation twice.
+
+## Constraints
+
+- One runtime plugin owner; replace the current registered bridge only after read-side replacement probes pass.
+- OpenCode provider selection remains native; reviewer inference has bounded resources and no write tools.
+- Public repository holds generic code and synthetic fixtures only; private host inventories and operational evidence stay local.
+- All skill creation and structural skill edits use CreateSkill; unrelated Grok configuration requires separate authorization.
+- The canonical Cortex writer must refuse writes until resolved roots, tier classifications and proposal pins are proven in disposable authority roots.
+
+## Goal
+
+"Build one LifeOS-specific OpenCode integration, deliverable on the Mac and Proxmox host, that closes a verifiable local loop:"
+
+Principal message → correctly classified feedback → completed primary-session exchange → bounded review using an OpenCode-accessible provider → LifeOS-governed mutation or recorded no-op → relevant later recall → truthful health.
+
+Preserve native OpenCode provider choice and LifeOS’s canonical USER/MEMORY authority. Treat Claude Code hook behavior as a source of requirements, not as code to invoke by filename. The public adapter repository carries generic code, synthetic fixtures, contract descriptions and non-sensitive documentation; installation-specific inventories and reports remain private.
+
+## Test Strategy
+
+| isc | type | check | threshold | tool | anchors_to |
+|-----|------|-------|-----------|------|------------|
+| ISC-1 | bash | effective registrations resolved from live settings and dispatch imports | complete matrix | private inventory probe | literal |
+| ISC-2 | bash | host manifest distinguishes roots and records effective plugin sources | Mac and Proxmox individually | private host probe | literal |
+| ISC-3 | bash | skill names and paths resolve without duplicate effective names | zero duplicate names | `opencode debug skill --pure` in valid config | literal |
+| ISC-4 | bun-test | release packaging preserves updater and overlay behavior | both probes pass | overlay/update fixture | derived: discovery |
+| ISC-5 | manual | four representative skill workflows reach intended root and outcome | four verified | isolated skill invocation log | literal |
+| ISC-6 | bun-test | fresh install and upgrade have one plugin owner | one | config/plugin discovery fixture | literal |
+| ISC-7 | bun-test | no USER/MEMORY or provider configuration overwritten | zero mutations | fixture diff | literal |
+| ISC-8 | bun-test | read-side replacement supplies identity, TELOS, fresh memory and routing | all samples pass | plugin event fixture | literal |
+| ISC-9 | bun-test | initialization and runtime health omit transcript and secrets | no leaks | plugin fixture | derived: privacy |
+| ISC-10 | manual | bounded isolated reviewer succeeds with observed provider/model | one intended non-Claude provider plus Copilot per configured host | live SDK session probe | literal |
+| ISC-11 | bun-test | reviewer cannot recurse, mutate or leak private spans | zero counterexamples | SDK fixture | literal |
+| ISC-12 | bun-test | user signals retain correct distinct semantics | precision-first classifications | event-to-feedback fixture | literal |
+| ISC-13 | bun-test | only completed primary exchanges are reviewed | no child/failed/aborted/compacted partials | session messages fixture | literal |
+| ISC-14 | bun-test | backlog, retries, crash and concurrency are durable and idempotent | zero duplicate writes | restart/crash fixture | literal |
+| ISC-15 | bun-test | typed writes hit canonical roots and preserve refusals | all four item types and refusal codes | disposable Cortex fixture | literal |
+| ISC-16 | manual | later answer uses relevant canonical fact | retrieved ID and answer agree | live conversation and file read-back | literal |
+| ISC-17 | bun-test | no-op and failed review report distinct honest health | no false success | health scenario | literal |
+| ISC-18 | bun-test | native and pre-tool permissions stop disallowed operations | tool does not execute | allow/ask/deny fixture | literal |
+| ISC-19 | bun-test | ISA/work observations survive restart and disk edits | registry and ISA agree | session/disk fixture | derived: parity |
+| ISC-20 | manual | response enforcement states actual host capability | no unevidenced blocking claim | stop-hook live probe | derived: parity |
+| ISC-21 | bun-test | compacted continuation preserves active ISA | correct handover | compact event fixture | derived: parity |
+| ISC-22 | bun-test | contract checker blocks unknown or changed consequential fields | four synthetic mutations detected | update checker fixture | literal |
+| ISC-23 | manual | maintenance workflow generated via CreateSkill passes routing and effect checks | verified | CreateSkill workflow | literal |
+| ISC-24 | manual | Mac live replacement proves parity with captured baseline | host-specific passing scenarios | restart and private effect matrix | literal |
+| ISC-25 | manual | Proxmox independently proves local flow or remains explicitly open | host-specific evidence | host manifest and scenarios | literal |
+| ISC-26 | bun-test | Anti: public repository contains private host evidence or installed secrets | zero matches | staged-content privacy audit | derived: privacy |
+| ISC-27 | bun-test | Anti: stale or test-only rating becomes fresh injected learning | zero matches | timed rating fixture | derived: precision |
+| ISC-28 | bun-test | Anti: update automatically marks parity green after a contract mutation | zero matches | synthetic upstream diff | literal |
+
+## Features
+
+### F0 · Cross-cutting authority and truthful evidence
+Why: the integration cannot count as working if a private destination or a failing host is painted green.
+
+- [ ] ISC-2: Each supported host reports distinct resolved configuration, USER and MEMORY roots with its own contract evidence.
+- [ ] ISC-17: No-op, failures and governance blocks remain individually visible in operational health.
+- [ ] ISC-26: Anti: no private host evidence, identity, absolute home path or credential is committed to the public repository.
+- [ ] ISC-28: Anti: a changed contract never silently retains a verified parity verdict.
+
+### F1 · Baseline and skill discovery
+Why: a named capability must resolve to the intended effective definition before it can be relied on.
+
+- [ ] ISC-1: Effective settings and dispatcher imports yield a behavior-by-effect inventory with triggers, blockers, dependencies and probe names.
+- [ ] ISC-3: Effective skill discovery has no ambiguous duplicate names and reports installed paths.
+- [ ] ISC-4: The chosen packaging shape passes disposable OverlaySystem and Update workflow probes.
+- [ ] ISC-5: ISA/Scaffold, CLI-backed, private and Claude-specific skills each have independently recorded listed/loaded/resolved/executed/outcome stages.
+
+### F2 · Single plugin installation
+Why: replacement is safe only when baseline context survives and there is no duplicate owner.
+
+- [ ] ISC-6: Fresh install and upgrade load exactly one plugin after restart, with no duplicate registration source.
+- [ ] ISC-7: Install and upgrade leave USER/MEMORY and provider/credential configuration unchanged.
+- [ ] ISC-8: A read-only turn receives identity, populated TELOS, bounded fresh memory and correct skill routing at the correct turn.
+- [ ] ISC-9: Plugin startup and runtime health are recorded without raw messages, transcripts or secrets.
+- [ ] ISC-27: Anti: a stale or test-only rating is never injected as fresh satisfaction evidence.
+
+### F3 · Provider-independent reviewer
+Why: memory learning must run through the selected OpenCode carrier without speaking in or re-entering the visible session.
+
+- [ ] ISC-10: A bounded SDK reviewer returns a typed result with executed provider and model evidenced on the configured host accounts.
+- [ ] ISC-11: Reviewer sessions cannot self-trigger capture, call write tools or send private spans to inference or persistence.
+
+### F4 · Cortex capture-to-recall loop
+Why: a durable fact counts only when an admissible completed exchange reaches governed storage and later helps you.
+
+- [ ] ISC-12: Explicit ratings, direct praise, unscored corrections and standing directives stay distinct under per-message dedup.
+- [ ] ISC-13: Only terminally completed primary-session user→assistant exchanges enter review; older unreviewed spans are tracked.
+- [ ] ISC-14: Backlog, crash and concurrent idle recovery never duplicate governed outcomes or advance a cursor early.
+- [ ] ISC-15: Disposable writer tests read back memory, idea, knowledge and proposal from canonical destinations and validate refusal codes.
+- [ ] ISC-16: A live later answer uses an actual relevant canonical record and private evidence names its source and freshness.
+
+### F5 · Consequential parity by effect
+Why: hooking an event is not the same as blocking an unsafe action or recovering work state.
+
+- [ ] ISC-18: Allowed, asked and denied operations behave correctly; blocking pre-tool hooks prevent execution.
+- [ ] ISC-19: Work/ISA observations reconcile on-disk changes, separate concurrent sessions and survive restart.
+- [ ] ISC-20: Completed-response enforcement is claimed only after a live pre-display blocking probe; otherwise marked advisory.
+- [ ] ISC-21: Compaction continues with the active ISA and excludes reviewer sessions.
+
+### F6 · Update detection and rollout
+Why: once verified, an upstream or host change cannot silently invalidate the local loop.
+
+- [ ] ISC-22: A pinned baseline checker flags synthetic event-field, nested-skill, mutation-target and overlay-rule changes.
+- [ ] ISC-23: CreateSkill produces and verifies the LifeOS maintenance workflow and its effect-matrix output.
+- [ ] ISC-24: Mac replacement and restart retain the known-good baseline and pass the full local loop.
+- [ ] ISC-25: Proxmox receives an independent host manifest and passes the same gates or remains explicitly open.
+
+## Decisions
+
+- 2026-09-27: The user-provided mission and seven-slice acceptance handoff are binding; public work can be built before a host rollout, but unchecked claims remain unchecked.
+- 2026-09-27: The existing bridge remains registered until replacement read-side probes pass. An invalid unrelated agent config is isolated during discovery rather than silently edited.
+- 2026-09-27: Both config and canonical USER/MEMORY roots must be resolved explicitly; a `.claude` example path is never permission to write there.
+- 2026-09-27: Parity is a per-host, per-row verdict: verified, advisory, unavailable or unverified, with probe and evidence.
+- 2026-09-27: Host-specific skill discovery and writer compatibility findings are retained in a private baseline; collision and writer gates remain open in this public ISA.
+- 2026-09-27: The previous adapter targets a different contract. It must not be installed as a LifeOS replacement based on generic tests alone.
+- 2026-09-27: The added isolated contract/feedback fixture tests and repository TypeScript check pass. Full legacy adapter suite has one pre-existing dependency on a missing legacy skill directory; it is not evidence for LifeOS integration.
+- 2026-09-27: Reviewer carrier fixture verifies SDK-shaped session creation, sanitized bounded input, disabled tools, typed result and teardown. It is not promoted to provider parity before actual configured-host model and recursion probes.
+
+## Remaining Work
+
+- [ ] Resolve isolated skill discovery collision and prove packaging against LifeOS OverlaySystem and Update on disposable installations — blocked on a design that preserves bootstrap.
+- [ ] Probe existing canonical writer with disposable USER/MEMORY, then implement reviewer and per-session transaction path — waiting on proven tier/path authority.
+- [ ] Run real provider, Mac and Proxmox integration scenarios and create maintenance skill via CreateSkill — waiting on the safe writer and host access.
