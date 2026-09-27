@@ -50,3 +50,11 @@ test("simultaneous claims of one span have a single reviewer", async () => {
   expect(calls).toBe(1);
   expect(existsSync(join(dir, `${spanKey(identity.sessionID, identity.userID, identity.assistantIDs)}.json`))).toBe(true);
 });
+
+test("feedback persists one classification per session/message, independent across sessions", () => {
+  const dir = root(); const journal = new ReviewJournal(dir);
+  expect(journal.recordFeedback("one", "message", "correction")).toBe(true);
+  expect(new ReviewJournal(dir).recordFeedback("one", "message", "correction")).toBe(false);
+  expect(journal.recordFeedback("two", "message", "correction")).toBe(true);
+  expect(journal.recordFeedback("one", "other-message", "rating")).toBe(true);
+});

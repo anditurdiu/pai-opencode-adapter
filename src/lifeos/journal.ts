@@ -34,6 +34,13 @@ export class ReviewJournal {
       try { const dir = openSync(this.root, "r"); try { fsyncSync(dir); } finally { closeSync(dir); } } catch { /* unsupported on some filesystems */ }
     } catch (e) { try { unlinkSync(temp); } catch {} throw e; }
   }
+  recordFeedback(sessionID: string, messageID: string, kind: string): boolean {
+    if (!sessionID || !messageID || !["rating", "praise", "correction", "directive"].includes(kind)) return false;
+    const key = digest(JSON.stringify(["feedback", sessionID, messageID]));
+    const file = join(this.root, `${key}.feedback.json`);
+    try { writeFileSync(file, JSON.stringify({ sessionID, messageID, kind, capturedAt: new Date().toISOString() }), { flag: "wx", mode: 0o600 }); return true; }
+    catch (e: any) { if (e.code === "EEXIST") return false; throw e; }
+  }
   private async locked<T>(key: string, action: () => Promise<T>): Promise<T | { status: "contended" }> {
     const lock = `${this.path(key)}.lock`;
     let fd: number;

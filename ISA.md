@@ -5,7 +5,7 @@ project: pai-opencode-adapter
 phase: climbing
 progress: 0/28
 started: 2026-09-27T10:08:32Z
-updated: 2026-09-27T10:45:40Z
+updated: 2026-09-27T10:51:21Z
 principal_stated_goal: "Build one LifeOS-specific OpenCode integration, deliverable on the Mac and Proxmox host, that closes a verifiable local loop:"
 principal_stated_goal_source: prompt
 principal_stated_goal_signal: 4
@@ -154,6 +154,7 @@ Why: once verified, an upstream or host change cannot silently invalidate the lo
 - 2026-09-27: A disposable installed-root probe reproduced refusal of all four types before repairing the canonical writer. After pinning USER to its linked personal authority and MEMORY to the installed config tree, synthetic writes, target pinning, audits, snapshot and refusal scenarios pass. ISC-15 stays open until all governance/refusal and read-back cases are covered.
 - 2026-09-27: A symlink to an external release payload remained recursively discoverable in one isolated OpenCode probe; a simple rename inside `LifeOS/install` left `SKILL.md` discoverable and broke OverlaySystem's expected payload layout. No live skill packaging change was made. The required release/update-aware shape remains open.
 - 2026-09-27: Following a correction about premature checkpoints, the build continued under this ISA. An isolated OpenCode SDK reviewer returned typed no-ops on actual configured Copilot and ZAI providers; DeepSeek returned incomplete. A read-side plugin candidate and per-span journal pass synthetic probes, but integration, cleanup telemetry and governed multi-item crash recovery are not yet verified.
+- 2026-09-27: Plugin fixture now captures feedback by session/message identity and excludes synthetic and child-session parts; a supplementary pre-tool hook throws for attempts to redirect canonical writer roots. These are fixture observations, not live OpenCode permission or feedback-persistence parity.
 
 ## Remaining Work
 
