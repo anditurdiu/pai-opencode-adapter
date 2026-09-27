@@ -5,7 +5,7 @@ project: pai-opencode-adapter
 phase: climbing
 progress: 0/28
 started: 2026-09-27T10:08:32Z
-updated: 2026-09-27T11:21:58Z
+updated: 2026-09-27T11:24:48Z
 principal_stated_goal: "Build one LifeOS-specific OpenCode integration, deliverable on the Mac and Proxmox host, that closes a verifiable local loop:"
 principal_stated_goal_source: prompt
 principal_stated_goal_signal: 4
@@ -144,7 +144,7 @@ Why: once verified, an upstream or host change cannot silently invalidate the lo
 ## Decisions
 
 - 2026-09-27: The user-provided mission and seven-slice acceptance handoff are binding; public work can be built before a host rollout, but unchecked claims remain unchecked.
-- 2026-09-27: The existing bridge remains registered until replacement read-side probes pass. An invalid unrelated agent config is isolated during discovery rather than silently edited.
+- 2026-09-27: The existing bridge remains registered until replacement read-side probes pass. Agent config errors were initially isolated for discovery; the principal later authorized correcting the invalid color fields in the live Mac install.
 - 2026-09-27: Both config and canonical USER/MEMORY roots must be resolved explicitly; a `.claude` example path is never permission to write there.
 - 2026-09-27: Parity is a per-host, per-row verdict: verified, advisory, unavailable or unverified, with probe and evidence.
 - 2026-09-27: Host-specific skill discovery and writer compatibility findings are retained in a private baseline; collision and writer gates remain open in this public ISA.
@@ -162,6 +162,7 @@ Why: once verified, an upstream or host change cannot silently invalidate the lo
 - 2026-09-27: Startup catch-up now bounds session count and reports overflow; canonical search/get retrieval is separately probed for knowledge notes. The hot-memory fixture proves a later context read from the linked USER file, not yet a later model answer. No acceptance claim has been checked on fixture evidence alone.
 - 2026-09-27: Mac and second-host disposable/read-only checks remain separate: the second host's actual OpenCode config validates, but its installed Cortex writer has not been changed or exercised with writes. The Mac's current OpenCode config cannot run fresh debug probes because of unrelated agent metadata; that configuration has not been edited.
 - 2026-09-27: A template hot-memory file may retain `provenance: template` after the canonical writer adds a durable entry. Read-side retrieval now checks for entries rather than suppressing the whole file on that metadata value; fixture-probed, still pending a live model response.
+- 2026-09-27: Authorized Mac startup repair: six active agent files used color values OpenCode's schema rejects. Their colors now use accepted theme values; normal `opencode run` reached the configured model and returned the startup probe. A separate agent-compatibility pass remains open: Claude-specific metadata is loaded as options rather than evidenced permissions/routing behavior.
 
 ## Remaining Work
 
