@@ -65,38 +65,52 @@ function parseReview(raw: string): Review | null {
 /** Return typed inference only; governance must validate/build typed items separately. */
 export async function reviewFixture(client: ReviewerClient, input: {
   sessionID: string; exchange: string; memory: string; model: { providerID: string; modelID: string };
-}, onSession: (id: string) => void): Promise<ReviewResult> {
+}, onSession: (id: string) => void, timeoutMs = TIMEOUT_MS): Promise<ReviewResult> {
   if (!input.sessionID || !input.model.providerID || !input.model.modelID) return { ok: false, reason: "invalid-input" };
+  if (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > TIMEOUT_MS) return { ok: false, reason: "invalid-input" };
   const sanitized = stripPrivate(input.exchange) + "\nMemory:\n" + stripPrivate(input.memory);
   if (!sanitized.trim() || sanitized.length > INPUT_LIMIT) return { ok: false, reason: "input-bound" };
   let sessionID: string | undefined;
-  let timeout: ReturnType<typeof setTimeout> | undefined;
   let timedOut = false;
+  let result: ReviewResult = { ok: false, reason: "review-incomplete" };
+  const deadline = Date.now() + timeoutMs;
+  async function bounded<T>(operation: Promise<T>): Promise<T> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([operation, new Promise<never>((_, reject) => {
+        timer = setTimeout(() => { timedOut = true; reject(new Error("timeout")); }, Math.max(1, deadline - Date.now()));
+      })]);
+    } finally { if (timer) clearTimeout(timer); }
+  }
   try {
-    const created = await client.session.create({ body: { parentID: input.sessionID, title: "LifeOS fixture reviewer" } });
-    if (created.error || !created.data?.id || created.data.id === input.sessionID) return { ok: false, reason: "session-create-failed" };
-    sessionID = created.data.id;
-    onSession(sessionID); // synchronous registry before prompt can emit reviewer events
-    const result = await Promise.race([
-      client.session.prompt({ path: { id: sessionID }, body: {
+    const created = await bounded(client.session.create({ body: { parentID: input.sessionID, title: "LifeOS fixture reviewer" } }));
+    if (created.error || !created.data?.id || created.data.id === input.sessionID) result = { ok: false, reason: "session-create-failed" };
+    else {
+      sessionID = created.data.id;
+      onSession(sessionID); // synchronous registry before prompt can emit reviewer events
+      const response = await bounded(client.session.prompt({ path: { id: sessionID }, body: {
         agent: "build", model: input.model,
         tools: { "*": false },
         parts: [{ type: "text", text: `Return only JSON: {"disposition":"noop"} or {"disposition":"candidate","item":{...}}. Item shapes: memory {"type":"memory","actor":"principal","content":"PREFERENCE: durable fact"}; idea {"type":"idea","title":"short title","content":"fact"}; knowledge {"type":"knowledge","entity_type":"research","name":"title","content":"fact"}; proposal {"type":"proposal","target_kind":"identity","target_file":"canonical file","edit":"proposal","rationale":"source","confidence":0.5}. Use noop when nothing new is justified. Never emit a memory set-overwrite.\n${sanitized}` }],
-      } }),
-      new Promise<never>((_, reject) => { timeout = setTimeout(() => { timedOut = true; reject(new Error("timeout")); }, TIMEOUT_MS); timeout.unref?.(); }),
-    ]);
-    if (result.error || !result.data || result.data.info.error || !result.data.info.time.completed) return { ok: false, reason: "review-incomplete" };
-    const { providerID, modelID } = result.data.info;
-    if (providerID !== input.model.providerID || modelID !== input.model.modelID) return { ok: false, reason: "provider-mismatch" };
-    const text = result.data.parts.filter(part => part.type === "text").map(part => part.text ?? "").join("");
-    const parsed = parseReview(text);
-    return parsed ? { ok: true, result: parsed, providerID, modelID } : { ok: false, reason: "malformed-response" };
-  } catch { return { ok: false, reason: "provider-or-timeout" }; }
+      } }));
+      if (response.error || !response.data || response.data.info.error || !response.data.info.time.completed) result = { ok: false, reason: "review-incomplete" };
+      else {
+        const { providerID, modelID } = response.data.info;
+        if (providerID !== input.model.providerID || modelID !== input.model.modelID) result = { ok: false, reason: "provider-mismatch" };
+        else {
+          const text = response.data.parts.filter(part => part.type === "text").map(part => part.text ?? "").join("");
+          const parsed = parseReview(text);
+          result = parsed ? { ok: true, result: parsed, providerID, modelID } : { ok: false, reason: "malformed-response" };
+        }
+      }
+    }
+  } catch { result = { ok: false, reason: "provider-or-timeout" }; }
   finally {
-    if (timeout) clearTimeout(timeout);
     if (sessionID) {
-      if (timedOut) try { await client.session.abort({ path: { id: sessionID } }); } catch { /* session cleanup below remains required */ }
-      try { await client.session.delete({ path: { id: sessionID } }); } catch { /* cleanup failure must be tracked by host operational health */ }
+      if (timedOut) try { await bounded(client.session.abort({ path: { id: sessionID } })); } catch { /* deletion still required */ }
+      try { await bounded(client.session.delete({ path: { id: sessionID } })); }
+      catch { result = { ok: false, reason: "session-cleanup-failed" }; }
     }
   }
+  return result;
 }

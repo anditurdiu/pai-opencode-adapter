@@ -45,3 +45,17 @@ test("reviewer item is typed, and memory set-overwrite is not inferred", async (
   const overwrite = fixture('{"disposition":"candidate","item":{"type":"memory","actor":"principal","op":"set","content":"PREFERENCE: short summaries"}}');
   expect(await reviewFixture(overwrite.client, request, () => {})).toEqual({ ok: false, reason: "malformed-response" });
 });
+
+test("cleanup failure cannot report a successful review", async () => {
+  const { client } = fixture('{"disposition":"noop"}');
+  client.session.delete = async () => { throw Error("cleanup unavailable"); };
+  expect(await reviewFixture(client, request, () => {})).toEqual({ ok: false, reason: "session-cleanup-failed" });
+});
+
+test("create that never resolves is bounded and cannot prompt the visible session", async () => {
+  const { client } = fixture('{"disposition":"noop"}');
+  client.session.create = async () => new Promise(() => {});
+  const started = Date.now();
+  expect(await reviewFixture(client, request, () => {}, 20)).toEqual({ ok: false, reason: "provider-or-timeout" });
+  expect(Date.now() - started).toBeLessThan(1000);
+});

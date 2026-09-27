@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import plugin from "./plugin.js";
@@ -18,6 +18,9 @@ test("actual plugin hooks inject primary-only context while retaining system/par
   try {
     const client = { session: { get: async ({ path }: { path: { id: string } }) => ({ data: { id: path.id, ...(path.id === "child" ? { parentID: "main" } : {}) } }) } };
     const hooks = await plugin({ client, directory: configRoot } as any);
+    const health = readFileSync(join(memory, "STATE", "opencode-feedback", "health.jsonl"), "utf8");
+    expect(health).toContain("read-side-ready");
+    expect(health).not.toContain("Fixture");
     const parts = [{ type: "text", text: "create an ISA" }];
     await hooks["chat.message"]!({ sessionID: "main", messageID: "user-1" } as any, { parts, message: { id: "user-1" } } as any);
     const primary = { system: ["existing instruction"] };

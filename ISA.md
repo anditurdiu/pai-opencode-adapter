@@ -5,7 +5,7 @@ project: pai-opencode-adapter
 phase: climbing
 progress: 0/29
 started: 2026-09-27T10:08:32Z
-updated: 2026-09-27T11:25:39Z
+updated: 2026-09-27T11:32:13Z
 principal_stated_goal: "Build one LifeOS-specific OpenCode integration, deliverable on the Mac and Proxmox host, that closes a verifiable local loop:"
 principal_stated_goal_source: prompt
 principal_stated_goal_signal: 4
@@ -165,6 +165,7 @@ Why: once verified, an upstream or host change cannot silently invalidate the lo
 - 2026-09-27: Mac and second-host disposable/read-only checks remain separate: the second host's actual OpenCode config validates, but its installed Cortex writer has not been changed or exercised with writes. The Mac's current OpenCode config cannot run fresh debug probes because of unrelated agent metadata; that configuration has not been edited.
 - 2026-09-27: A template hot-memory file may retain `provenance: template` after the canonical writer adds a durable entry. Read-side retrieval now checks for entries rather than suppressing the whole file on that metadata value; fixture-probed, still pending a live model response.
 - 2026-09-27: Authorized Mac startup repair: six active agent files used color values OpenCode's schema rejects. Their colors now use accepted theme values; normal `opencode run` reached the configured model and returned the startup probe. A separate agent-compatibility pass remains open: Claude-specific metadata is loaded as options rather than evidenced permissions/routing behavior.
+- 2026-09-27: Reviewer teardown and session-create timeout were reproduced as failures and repaired; bare rating turns are excluded from durable review, journal health records bounded codes, and incomplete session authority fails closed. These are component/fixture checks; installed idle scheduling and real write/retrieval remain open.
 
 ## Remaining Work
 

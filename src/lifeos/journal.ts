@@ -48,6 +48,20 @@ export class ReviewJournal {
       return row;
     });
   }
+  statusCounts(): Record<Disposition, number> {
+    const counts: Record<Disposition, number> = { pending: 0, reviewing: 0, applying: 0, succeeded: 0, noop: 0, "failed-retryable": 0, "blocked-governance": 0, "uncertain-write": 0 };
+    for (const name of readdirSync(this.root).filter(name => /^[0-9a-f]{64}\.json$/.test(name))) {
+      const state = JSON.parse(readFileSync(join(this.root, name), "utf8")) as SpanState;
+      if (!(state.status in counts)) throw new Error("unknown journal disposition");
+      counts[state.status]++;
+    }
+    return counts;
+  }
+  recordStatus(event: "loaded" | "idle" | "review-result" | "retrieval" | "error", code: string): void {
+    if (!/^[a-z0-9-]{1,48}$/.test(code)) throw new Error("invalid operational status code");
+    const file = join(this.root, "health.jsonl");
+    writeFileSync(file, JSON.stringify({ at: new Date().toISOString(), event, code }) + "\n", { flag: "a", mode: 0o600 });
+  }
   private async locked<T>(key: string, action: () => Promise<T>): Promise<T | { status: "contended" }> {
     const lock = `${this.path(key)}.lock`;
     let fd: number;

@@ -1,5 +1,6 @@
 import { completeExchanges, type MessageRow } from "./exchanges.js";
 import { ReviewJournal, spanKey } from "./journal.js";
+import { classifyFeedback } from "./feedback.js";
 import { stripPrivate, type ReviewResult } from "./reviewer.js";
 
 export interface SessionAuthority {
@@ -39,10 +40,12 @@ export async function reviewPrimaryIdle(input: {
   if (messages.error || !messages.data) return { state: "failed-fetch", attempts: 0, olderUnreviewed: false };
   const projection = completeExchanges(input.sessionID, messages.data, input.reviewerIDs);
   let attempts = 0, blocked = false;
+  const feedbackOnly = (text: string) => ["rating", "praise"].includes(classifyFeedback(text).kind);
   for (const exchange of projection.exchanges) {
     // Review only a completed exchange. Signal classification is per message;
     // it never supplies a fabricated numeric score for a correction.
     const key = spanKey(input.sessionID, exchange.userID, exchange.assistantIDs);
+    if (feedbackOnly(exchange.user)) continue;
     if (input.journal.read(key)?.status === "succeeded" || input.journal.read(key)?.status === "noop") continue;
     const outcome = await input.journal.process({ sessionID: input.sessionID, userID: exchange.userID, assistantIDs: exchange.assistantIDs }, async () => {
       const reviewed = await input.review({ user: stripPrivate(exchange.user), assistant: stripPrivate(exchange.assistant) }, input.sessionID);

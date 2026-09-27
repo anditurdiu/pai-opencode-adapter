@@ -63,3 +63,14 @@ test("startup catch-up bounds session count and reports overflow", async () => {
     review: async () => ({ ok: true, result: { disposition: "noop" }, providerID: "fixture", modelID: "fixture" }), apply: async () => ({ ok: true }) });
   expect(result).toEqual({ state: "attempted", sessions: 1, truncated: true });
 });
+
+test("a bare rating never creates a durable memory candidate", async () => {
+  const journal = new ReviewJournal(mkdtempSync(join(tmpdir(), "lifeos-rating-only-")));
+  const rating = user("rating"); rating.parts = [{ type: "text", text: "8" }];
+  let called = 0;
+  const result = await reviewPrimaryIdle({ sessionID: "main", client: setup([rating, assistant("answer")]), journal, reviewerIDs: new Set(),
+    review: async () => { called++; return { ok: true, result: { disposition: "noop" }, providerID: "fixture", modelID: "fixture" }; },
+    apply: async () => ({ ok: true }) });
+  expect(result.attempts).toBe(0);
+  expect(called).toBe(0);
+});

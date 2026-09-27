@@ -18,6 +18,8 @@ test("no-op and successful outcomes stay terminal across restart", async () => {
   expect((await new ReviewJournal(dir).process(next, item, apply)).status).toBe("succeeded");
   expect((await new ReviewJournal(dir).process(next, item, apply)).status).toBe("succeeded");
   expect([reviews, writes]).toEqual([2, 1]);
+  expect(new ReviewJournal(dir).statusCounts().succeeded).toBe(1);
+  expect(new ReviewJournal(dir).statusCounts().noop).toBe(1);
 });
 
 test("a crash after intent-to-write cannot accidentally repeat append or curation", async () => {
@@ -57,4 +59,10 @@ test("feedback persists one classification per session/message, independent acro
   expect(new ReviewJournal(dir).recordFeedback("one", "message", "correction")).toBe(false);
   expect(journal.recordFeedback("two", "message", "correction")).toBe(true);
   expect(journal.recordFeedback("one", "other-message", "rating")).toBe(true);
+});
+
+test("health marker logs only bounded codes, not raw transcript text", () => {
+  const dir = root(); const journal = new ReviewJournal(dir);
+  journal.recordStatus("loaded", "read-side-ready");
+  expect(() => journal.recordStatus("error", "private conversation content goes here")).toThrow();
 });
