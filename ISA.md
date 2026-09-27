@@ -5,7 +5,7 @@ project: pai-opencode-adapter
 phase: climbing
 progress: 0/29
 started: 2026-09-27T10:08:32Z
-updated: 2026-09-27T11:45:03Z
+updated: 2026-09-27T11:47:26Z
 principal_stated_goal: "Build one LifeOS-specific OpenCode integration, deliverable on the Mac and Proxmox host, that closes a verifiable local loop:"
 principal_stated_goal_source: prompt
 principal_stated_goal_signal: 4
@@ -168,6 +168,7 @@ Why: once verified, an upstream or host change cannot silently invalidate the lo
 - 2026-09-27: Reviewer teardown and session-create timeout were reproduced as failures and repaired; bare rating turns are excluded from durable review, journal health records bounded codes, and incomplete session authority fails closed. These are component/fixture checks; installed idle scheduling and real write/retrieval remain open.
 - 2026-09-27: The scheduler now extracts the selected provider/model from the completed user message rather than hardcoding a reviewer carrier; a fixture confirms propagation. Registration of automatic idle review remains gated on host-specific isolation and retry reconciliation.
 - 2026-09-27: An initial candidate startup probe unknowingly loaded both global and test plugins; it was invalidated. A separate-HOME isolated config reported one candidate plugin and its synthetic USER/MEMORY roots, and the candidate produced the constitutional banner with test instructions. This is a fixture, not Mac live replacement or provider-parity evidence; the real skill discovery collision remains open.
+- 2026-09-27: The candidate plugin initializes as sole owner under a synthetic config root; read-only Cortex status on the Mac still resolves the local MEMORY authority. Mac live registration is unchanged. Host-specific provider, skill-discovery and read-side parity scenarios remain open before replacement.
 
 ## Remaining Work
 
