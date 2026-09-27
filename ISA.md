@@ -5,7 +5,7 @@ project: pai-opencode-adapter
 phase: climbing
 progress: 0/29
 started: 2026-09-27T10:08:32Z
-updated: 2026-09-27T13:21:50Z
+updated: 2026-09-27T13:26:55Z
 principal_stated_goal: "Build one LifeOS-specific OpenCode integration, deliverable on the Mac and Proxmox host, that closes a verifiable local loop:"
 principal_stated_goal_source: prompt
 principal_stated_goal_signal: 4
@@ -188,6 +188,7 @@ Why: once verified, an upstream or host change cannot silently invalidate the lo
 - 2026-09-27: Restart fixture confirms an `uncertain-write` span never invokes reviewer or writer again; it remains blocked pending explicit reconciliation. This proves no automatic duplicate application, not recovery or completion of the interrupted item.
 - 2026-09-27: Operational health now reports `uncertain-write` separately from governance refusal, so an interrupted append cannot hide behind a generic block. The durable journal still needs authority-based reconciliation before that state can clear.
 - 2026-09-27: Tier-B note appends and proposal queue writes can land before the journal's terminal row. An automatic retry based only on the current item digest was rejected; the canonical target and pre-write identity must be pinned for reconciliation. Until then an interrupted write stays visibly blocked, with no live autonomous writer enabled.
+- 2026-09-27: `MemorySystem.add()` confirms destination selection happens after typed sanitization and before tier checks; a replay using changed schema could target a different file. Safe reconciliation needs the pinned canonical target and prior on-disk fingerprint, not only a journal status. The autonomous writer stays disabled.
 
 ## Remaining Work
 
