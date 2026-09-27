@@ -5,7 +5,7 @@ project: pai-opencode-adapter
 phase: climbing
 progress: 0/29
 started: 2026-09-27T10:08:32Z
-updated: 2026-09-27T12:49:28Z
+updated: 2026-09-27T12:53:25Z
 principal_stated_goal: "Build one LifeOS-specific OpenCode integration, deliverable on the Mac and Proxmox host, that closes a verifiable local loop:"
 principal_stated_goal_source: prompt
 principal_stated_goal_signal: 4
@@ -183,6 +183,7 @@ Why: once verified, an upstream or host change cannot silently invalidate the lo
 - 2026-09-27: Idle scheduling now attempts at most one complete span per event, preserves older-first order and reports remaining spans/full-window ambiguity as backlog. This caps reviewer inference volume without pretending an exactly full SDK message window covers all history; fixture passed, host cadence remains unverified.
 - 2026-09-27: Journal-based operational health now reads latest status and disposition counts; a later retryable failure outranks an older success in fixtures. This is only an adapter-local assessor, not proof the installed Cortex health gates recognize the new reviewer.
 - 2026-09-27: A Mac run of the installed `MemoryHealthCheck.ts --json` returned critical with legacy-root missing hooks/writer/reviewer evidence, while `Cortex.ts status --adapter opencode` found the OpenCode MEMORY authority. This divergence blocks truthful green health until the canonical assessor is adapted; the adapter-local journal verdict cannot override it.
+- 2026-09-27: The canonical health CLI now locates the OpenCode config root and reports missing Claude Code `settings.json` as an OpenCode plugin-registration WARN, not a false Claude runtime critical. Mac status is WARN (0 critical, 11 warn, 19 ok) with reviewer/retrieval evidence still absent. Green health remains blocked pending actual OpenCode registration and reviewer evidence checks.
 
 ## Remaining Work
 
