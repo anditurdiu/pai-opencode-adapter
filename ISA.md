@@ -5,7 +5,7 @@ project: pai-opencode-adapter
 phase: climbing
 progress: 0/28
 started: 2026-09-27T10:08:32Z
-updated: 2026-09-27T11:19:46Z
+updated: 2026-09-27T11:21:58Z
 principal_stated_goal: "Build one LifeOS-specific OpenCode integration, deliverable on the Mac and Proxmox host, that closes a verifiable local loop:"
 principal_stated_goal_source: prompt
 principal_stated_goal_signal: 4
@@ -161,6 +161,7 @@ Why: once verified, an upstream or host change cannot silently invalidate the lo
 - 2026-09-27: A disposable complete-exchange fixture now reaches the canonical Cortex writer and reads back a synthetic hot-memory fact, with repeat idle causing no second write. The real SDK reviewer is not yet connected to that scheduler in an installed plugin, and crash reconciliation/backlog remain open.
 - 2026-09-27: Startup catch-up now bounds session count and reports overflow; canonical search/get retrieval is separately probed for knowledge notes. The hot-memory fixture proves a later context read from the linked USER file, not yet a later model answer. No acceptance claim has been checked on fixture evidence alone.
 - 2026-09-27: Mac and second-host disposable/read-only checks remain separate: the second host's actual OpenCode config validates, but its installed Cortex writer has not been changed or exercised with writes. The Mac's current OpenCode config cannot run fresh debug probes because of unrelated agent metadata; that configuration has not been edited.
+- 2026-09-27: A template hot-memory file may retain `provenance: template` after the canonical writer adds a durable entry. Read-side retrieval now checks for entries rather than suppressing the whole file on that metadata value; fixture-probed, still pending a live model response.
 
 ## Remaining Work
 
