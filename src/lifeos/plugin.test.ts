@@ -71,7 +71,7 @@ test("noop reviewer mode handles primary idle without writing canonical files", 
     await hooks.event!({ event: { type: "session.idle", properties: { sessionID: "review-child" } } } as any);
     await hooks.event!({ event: { type: "session.idle", properties: { sessionID: "primary" } } } as any);
     expect(prompts).toBe(1);
-    expect(readFileSync(join(memory, "STATE", "opencode-feedback", "health.jsonl"), "utf8")).toContain('"code":"reviewed"');
+    expect(readFileSync(join(memory, "STATE", "opencode-feedback", "health.jsonl"), "utf8")).toContain('"code":"noop"');
   } finally {
     if (previous.HOME === undefined) delete process.env.HOME; else process.env.HOME = previous.HOME;
     if (previous.LIFEOS_OPENCODE_REVIEW_MODE === undefined) delete process.env.LIFEOS_OPENCODE_REVIEW_MODE; else process.env.LIFEOS_OPENCODE_REVIEW_MODE = previous.LIFEOS_OPENCODE_REVIEW_MODE;

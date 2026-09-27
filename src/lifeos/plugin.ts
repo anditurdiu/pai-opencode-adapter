@@ -76,7 +76,11 @@ export default (async ({ client, directory }) => {
           // remains blocked in the journal rather than becoming an invisible no-op.
           apply: async () => ({ ok: false, code: "review-writes-disabled" }),
         });
-        journal.recordStatus("review-result", outcome.state);
+        const counts = journal.statusCounts();
+        const code = counts["uncertain-write"] || counts["blocked-governance"] ? "blocked-governance"
+          : counts["failed-retryable"] ? "failed-retryable"
+          : counts.succeeded ? "succeeded" : counts.noop ? "noop" : outcome.state;
+        journal.recordStatus("review-result", code);
       }
     },
   };

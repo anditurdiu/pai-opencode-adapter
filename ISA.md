@@ -5,7 +5,7 @@ project: pai-opencode-adapter
 phase: climbing
 progress: 0/29
 started: 2026-09-27T10:08:32Z
-updated: 2026-09-27T12:31:19Z
+updated: 2026-09-27T12:37:45Z
 principal_stated_goal: "Build one LifeOS-specific OpenCode integration, deliverable on the Mac and Proxmox host, that closes a verifiable local loop:"
 principal_stated_goal_source: prompt
 principal_stated_goal_signal: 4
@@ -179,6 +179,7 @@ Why: once verified, an upstream or host change cannot silently invalidate the lo
 - 2026-09-27: The candidate plugin's `noop` reviewer mode now has a plugin-hook fixture proving one completed primary exchange creates one SDK child review, reviewer idle is ignored, repeated primary idle does not repeat inference, and canonical writes remain blocked. Real-host mode activation and outcome health still require live probes.
 - 2026-09-27: A governance-refused proposal now remains a single blocked journal disposition on repeated idle, with a fixture proving no second apply; manual/deterministic reconciliation of uncertain post-write crashes remains open.
 - 2026-09-27: Independent second-host read-only baseline still reports OpenCode/Bun available and current config valid with the prior plugin. Disposable installer, writer and scheduler probes pass on the Mac fixture; neither host has been promoted to live writer/reviewer status.
+- 2026-09-27: A genuine single-plugin isolated run did fire idle review but its provider returned a retryable failure; the initial health marker misleadingly said `reviewed`. Health reporting was corrected to derive from the durable journal, and a repeat isolated probe reported `failed-retryable`. No host was promoted on this failure.
 
 ## Remaining Work
 
