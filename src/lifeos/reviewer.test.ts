@@ -32,9 +32,16 @@ test("isolated fixture uses selected model, disabled tools, registered child and
 });
 
 test("incomplete, oversized and malformed responses never become writes", async () => {
-  const invalid = fixture('{"disposition":"candidate","type":"memory","content":""}');
+  const invalid = fixture('{"disposition":"candidate","item":{"type":"memory","actor":"principal","content":""}}');
   expect(await reviewFixture(invalid.client, request, () => {})).toEqual({ ok: false, reason: "malformed-response" });
   const incomplete = fixture('{"disposition":"noop"}', false);
   expect(await reviewFixture(incomplete.client, request, () => {})).toEqual({ ok: false, reason: "review-incomplete" });
   expect(await reviewFixture(invalid.client, { ...request, exchange: "x".repeat(12_001) }, () => {})).toEqual({ ok: false, reason: "input-bound" });
+});
+
+test("reviewer item is typed, and memory set-overwrite is not inferred", async () => {
+  const { client } = fixture('{"disposition":"candidate","item":{"type":"memory","actor":"principal","content":"PREFERENCE: short summaries"}}');
+  expect(await reviewFixture(client, request, () => {})).toEqual({ ok: true, result: { disposition: "candidate", item: { type: "memory", actor: "principal", content: "PREFERENCE: short summaries" } }, providerID: "fixture", modelID: "other" });
+  const overwrite = fixture('{"disposition":"candidate","item":{"type":"memory","actor":"principal","op":"set","content":"PREFERENCE: short summaries"}}');
+  expect(await reviewFixture(overwrite.client, request, () => {})).toEqual({ ok: false, reason: "malformed-response" });
 });

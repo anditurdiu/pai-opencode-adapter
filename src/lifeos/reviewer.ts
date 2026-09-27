@@ -10,7 +10,7 @@ export interface ReviewerClient {
     delete(options: { path: { id: string } }): Promise<unknown>;
   };
 }
-export type Review = { disposition: "noop" } | { disposition: "candidate"; type: "memory" | "idea" | "knowledge" | "proposal"; content: string };
+export type Review = { disposition: "noop" } | { disposition: "candidate"; item: Record<string, unknown> };
 export type ReviewResult = { ok: true; result: Review; providerID: string; modelID: string } | { ok: false; reason: string };
 const INPUT_LIMIT = 12_000, OUTPUT_LIMIT = 2_048, TIMEOUT_MS = 30_000;
 
@@ -35,11 +35,30 @@ function parseReview(raw: string): Review | null {
     if (!value || typeof value !== "object" || Array.isArray(value)) return null;
     const row = value as Record<string, unknown>;
     if (row.disposition === "noop" && Object.keys(row).length === 1) return { disposition: "noop" };
-    if (row.disposition !== "candidate" || !["memory", "idea", "knowledge", "proposal"].includes(String(row.type)) || typeof row.content !== "string") return null;
-    if (Object.keys(row).sort().join(",") !== "content,disposition,type" || !row.content.trim() || row.content.length > 1024) return null;
-    const content = stripPrivate(row.content).trim();
-    if (!content) return null;
-    return { disposition: "candidate", type: row.type as "memory" | "idea" | "knowledge" | "proposal", content };
+    if (row.disposition !== "candidate" || Object.keys(row).sort().join(",") !== "disposition,item" || !row.item || typeof row.item !== "object" || Array.isArray(row.item)) return null;
+    const item = row.item as Record<string, unknown>;
+    const type = item.type;
+    const allowed: Record<string, string[]> = {
+      memory: ["type", "actor", "content", "op", "provenance", "confidence"],
+      idea: ["type", "title", "content", "source_session", "confidence"],
+      knowledge: ["type", "entity_type", "name", "content", "source_session", "confidence"],
+      proposal: ["type", "target_file", "target_kind", "edit", "confidence", "rationale", "source_session"],
+    };
+    if (typeof type !== "string" || !allowed[type] || Object.keys(item).some(key => !allowed[type]!.includes(key))) return null;
+    const cleaned: Record<string, unknown> = {};
+    for (const [key, val] of Object.entries(item)) {
+      if (typeof val === "string") {
+        if (val.length > 1024) return null;
+        cleaned[key] = stripPrivate(val).trim();
+      } else if (typeof val === "number" && Number.isFinite(val)) cleaned[key] = val;
+      else return null;
+    }
+    if (typeof cleaned.content === "string" && !cleaned.content || typeof cleaned.edit === "string" && !cleaned.edit) return null;
+    if (type === "memory" && (cleaned.actor !== "principal" && cleaned.actor !== "assistant" || typeof cleaned.content !== "string" || !cleaned.content || cleaned.op === "set")) return null;
+    if (type === "idea" && (typeof cleaned.title !== "string" || !cleaned.title || typeof cleaned.content !== "string" || !cleaned.content)) return null;
+    if (type === "knowledge" && (!["person", "company", "research"].includes(String(cleaned.entity_type)) || typeof cleaned.name !== "string" || !cleaned.name || typeof cleaned.content !== "string" || !cleaned.content)) return null;
+    if (type === "proposal" && (typeof cleaned.target_file !== "string" || typeof cleaned.edit !== "string" || typeof cleaned.rationale !== "string" || typeof cleaned.confidence !== "number")) return null;
+    return { disposition: "candidate", item: cleaned };
   } catch { return null; }
 }
 
@@ -62,7 +81,7 @@ export async function reviewFixture(client: ReviewerClient, input: {
       client.session.prompt({ path: { id: sessionID }, body: {
         agent: "build", model: input.model,
         tools: { "*": false },
-        parts: [{ type: "text", text: `Return only JSON: {"disposition":"noop"} or {"disposition":"candidate","type":"memory|idea|knowledge|proposal","content":"..."}.\n${sanitized}` }],
+        parts: [{ type: "text", text: `Return only JSON: {"disposition":"noop"} or {"disposition":"candidate","item":{...}}. Item shapes: memory {"type":"memory","actor":"principal","content":"PREFERENCE: durable fact"}; idea {"type":"idea","title":"short title","content":"fact"}; knowledge {"type":"knowledge","entity_type":"research","name":"title","content":"fact"}; proposal {"type":"proposal","target_kind":"identity","target_file":"canonical file","edit":"proposal","rationale":"source","confidence":0.5}. Use noop when nothing new is justified. Never emit a memory set-overwrite.\n${sanitized}` }],
       } }),
       new Promise<never>((_, reject) => { timeout = setTimeout(() => { timedOut = true; reject(new Error("timeout")); }, TIMEOUT_MS); timeout.unref?.(); }),
     ]);

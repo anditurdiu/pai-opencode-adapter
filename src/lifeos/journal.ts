@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, readdirSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { hostname } from "node:os";
 import { join } from "node:path";
 
@@ -40,6 +40,13 @@ export class ReviewJournal {
     const file = join(this.root, `${key}.feedback.json`);
     try { writeFileSync(file, JSON.stringify({ sessionID, messageID, kind, capturedAt: new Date().toISOString() }), { flag: "wx", mode: 0o600 }); return true; }
     catch (e: any) { if (e.code === "EEXIST") return false; throw e; }
+  }
+  listFeedback(): Array<{ sessionID: string; messageID: string; kind: string; capturedAt: string }> {
+    return readdirSync(this.root).filter(name => name.endsWith(".feedback.json")).map(name => {
+      const row = JSON.parse(readFileSync(join(this.root, name), "utf8"));
+      if (!row || typeof row.sessionID !== "string" || typeof row.messageID !== "string" || typeof row.kind !== "string") throw new Error("invalid feedback row");
+      return row;
+    });
   }
   private async locked<T>(key: string, action: () => Promise<T>): Promise<T | { status: "contended" }> {
     const lock = `${this.path(key)}.lock`;
