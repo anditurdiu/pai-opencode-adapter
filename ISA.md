@@ -2,10 +2,10 @@
 task: "Integrate LifeOS with OpenCode across supported hosts"
 slug: 20260927-lifeos-opencode-integration
 project: pai-opencode-adapter
-phase: marking
+phase: climbing
 progress: 0/28
 started: 2026-09-27T10:08:32Z
-updated: 2026-09-27T10:08:32Z
+updated: 2026-09-27T10:30:16Z
 principal_stated_goal: "Build one LifeOS-specific OpenCode integration, deliverable on the Mac and Proxmox host, that closes a verifiable local loop:"
 principal_stated_goal_source: prompt
 principal_stated_goal_signal: 4
@@ -151,6 +151,8 @@ Why: once verified, an upstream or host change cannot silently invalidate the lo
 - 2026-09-27: The previous adapter targets a different contract. It must not be installed as a LifeOS replacement based on generic tests alone.
 - 2026-09-27: The added isolated contract/feedback fixture tests and repository TypeScript check pass. Full legacy adapter suite has one pre-existing dependency on a missing legacy skill directory; it is not evidence for LifeOS integration.
 - 2026-09-27: Reviewer carrier fixture verifies SDK-shaped session creation, sanitized bounded input, disabled tools, typed result and teardown. It is not promoted to provider parity before actual configured-host model and recursion probes.
+- 2026-09-27: A disposable installed-root probe reproduced refusal of all four types before repairing the canonical writer. After pinning USER to its linked personal authority and MEMORY to the installed config tree, synthetic writes, target pinning, audits, snapshot and refusal scenarios pass. ISC-15 stays open until all governance/refusal and read-back cases are covered.
+- 2026-09-27: A symlink to an external release payload remained recursively discoverable in one isolated OpenCode probe; a simple rename inside `LifeOS/install` left `SKILL.md` discoverable and broke OverlaySystem's expected payload layout. No live skill packaging change was made. The required release/update-aware shape remains open.
 
 ## Remaining Work
 
