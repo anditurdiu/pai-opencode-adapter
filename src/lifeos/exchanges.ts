@@ -7,7 +7,10 @@ export interface Exchange { userID: string; assistantIDs: string[]; user: string
 export function completeExchanges(sessionID: string, messages: MessageRow[], reviewerIDs: ReadonlySet<string>, limit = 80) {
   if (!sessionID || reviewerIDs.has(sessionID) || !Number.isInteger(limit) || limit < 2 || limit > 160) throw new Error("invalid exchange window");
   const window = messages.slice(-limit);
-  const skippedOlder = messages.length > window.length;
+  // The SDK returns at most `limit` rows; an exactly full page does not prove
+  // the preceding history is empty. Keep backlog open until a wider authority
+  // read or an explicit cursor proves the boundary.
+  const skippedOlder = messages.length >= limit;
   const beginsWithAssistant = window[0]?.info.role === "assistant";
   const exchanges: Exchange[] = [];
   let user: MessageRow | undefined;

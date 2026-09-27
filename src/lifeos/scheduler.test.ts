@@ -55,6 +55,19 @@ test("a 80-message window reports older unreviewed work rather than marking all 
   expect(result.state).toBe("backlog");
 });
 
+test("one idle reviews at most one span and marks the remaining queue as backlog", async () => {
+  const journal = new ReviewJournal(mkdtempSync(join(tmpdir(), "lifeos-cadence-")));
+  const client = setup([user("u1"), assistant("a1"), user("u2"), assistant("a2")]);
+  let called = 0;
+  const params = { sessionID: "main", client, journal, reviewerIDs: new Set<string>(),
+    review: async () => { called++; return { ok: true as const, result: { disposition: "noop" as const }, providerID: "fixture", modelID: "fixture" }; },
+    apply: async () => ({ ok: true }) };
+  expect(await reviewPrimaryIdle(params)).toMatchObject({ state: "backlog", attempts: 1, olderUnreviewed: true });
+  expect(called).toBe(1);
+  expect(await reviewPrimaryIdle(params)).toMatchObject({ state: "reviewed", attempts: 1, olderUnreviewed: false });
+  expect(called).toBe(2);
+});
+
 test("startup catch-up bounds session count and reports overflow", async () => {
   const journal = new ReviewJournal(mkdtempSync(join(tmpdir(), "lifeos-catchup-")));
   const client = { session: { list: async () => ({ data: [{ id: "main" }, { id: "child", parentID: "main" }, { id: "main2" }] }),

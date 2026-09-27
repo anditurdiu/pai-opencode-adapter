@@ -39,7 +39,10 @@ export async function reviewPrimaryIdle(input: {
   const messages = await input.client.session.messages({ path: { id: input.sessionID }, query: { limit: 80 } });
   if (messages.error || !messages.data) return { state: "failed-fetch", attempts: 0, olderUnreviewed: false };
   const projection = completeExchanges(input.sessionID, messages.data, input.reviewerIDs);
-  let attempts = 0, blocked = false;
+  let attempts = 0, blocked = false, pending = false;
+  // Review from oldest to newest within the fetched window. Combined with the
+  // one-span cadence cap, an idle cannot flood inference or skip ahead of work
+  // still pending within that window.
   const feedbackOnly = (text: string) => ["rating", "praise"].includes(classifyFeedback(text).kind);
   for (const exchange of projection.exchanges) {
     // Review only a completed exchange. Signal classification is per message;
@@ -48,6 +51,7 @@ export async function reviewPrimaryIdle(input: {
     if (feedbackOnly(exchange.user)) continue;
     const prior = input.journal.read(key);
     if (prior && ["succeeded", "noop", "blocked-governance", "uncertain-write"].includes(prior.status)) continue;
+    if (attempts > 0) { pending = true; continue; }
     const outcome = await input.journal.process({ sessionID: input.sessionID, userID: exchange.userID, assistantIDs: exchange.assistantIDs }, async () => {
       const source = messages.data!.find(message => message.info.id === exchange.userID);
       const model = source && "model" in source.info ? source.info.model as { providerID: string; modelID: string } : undefined;
@@ -59,5 +63,6 @@ export async function reviewPrimaryIdle(input: {
     attempts++;
     if (outcome.status === "blocked-governance" || outcome.status === "uncertain-write") blocked = true;
   }
-  return { state: blocked ? "blocked" : projection.skippedOlder ? "backlog" : attempts ? "reviewed" : "waiting", attempts, olderUnreviewed: projection.skippedOlder };
+  const olderUnreviewed = projection.skippedOlder || pending;
+  return { state: blocked ? "blocked" : olderUnreviewed ? "backlog" : attempts ? "reviewed" : "waiting", attempts, olderUnreviewed };
 }
