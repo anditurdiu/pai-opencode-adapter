@@ -52,3 +52,11 @@ test("canonical search retrieves by record ID before selecting bounded context",
   expect(await searchCanonical(cortex, "durable fixture")).toEqual([{ id: "note-a", path: "KNOWLEDGE/Ideas/fixture.md", text: "Durable fixture" }]);
   expect(calls.map(call => call[0])).toEqual(["search", "get"]);
 });
+
+test("last reflection is bounded and available with no rating", () => {
+  const root = mkdtempSync(join(tmpdir(), "lifeos-reflection-"));
+  const memoryRoot = join(root, "MEMORY"), userRoot = join(root, "USER");
+  mkdirSync(join(memoryRoot, "LEARNING", "REFLECTIONS"), { recursive: true }); mkdirSync(userRoot);
+  writeFileSync(join(memoryRoot, "LEARNING", "REFLECTIONS", "algorithm-reflections.jsonl"), JSON.stringify({ reflection: "Synthetic learning" }));
+  expect(readTurnContext({ userRoot, memoryRoot }).blocks).toContain("LifeOS last reflection: Synthetic learning");
+});

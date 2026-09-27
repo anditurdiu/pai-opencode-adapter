@@ -46,7 +46,7 @@ export function readTurnContext(roots: ContextRoots, now = Date.now()): ContextR
   const principal = text(join(roots.userRoot, "PRINCIPAL", "PRINCIPAL_IDENTITY.md"), 16_384);
   const assistant = text(join(roots.userRoot, "DIGITAL_ASSISTANT", "DA_IDENTITY.md"), 16_384);
   const identity = [field(principal, "Name"), field(principal, "Timezone"), field(principal, "Location"), field(principal, "Focus"), field(assistant, "Name")];
-  if (identity.some(Boolean)) blocks.push(`LifeOS identity: ${identity.filter(Boolean).join(" | ").slice(0, 1024)}`);
+  if (identity.some(Boolean)) blocks.push(`LifeOS identity: ${identity.filter(Boolean).join(" | ").slice(0, 1024)}\nYou are the LifeOS Digital Assistant. Speak first person; the principal is "you". Follow the loaded LifeOS constitution.`);
   const telos = text(join(roots.userRoot, "TELOS", "PRINCIPAL_TELOS.md"), 32_768);
   if (telos && !/provenance:\s*template/.test(telos)) {
     const selected = [section(telos, "Missions"), section(telos, "Active Goals")].filter(Boolean).join("\n");
@@ -56,6 +56,20 @@ export function readTurnContext(roots: ContextRoots, now = Date.now()): ContextR
     ["assistant", join(roots.userRoot, "DIGITAL_ASSISTANT", "DA_MEMORY.md")]] as const) {
     const hot = text(file, 4096).trim();
     if (hot && !/provenance:\s*template/.test(hot)) blocks.push(`LifeOS ${actor} hot memory:\n${hot}`);
+  }
+  let reflectionText = "";
+  try {
+    const path = join(roots.memoryRoot, "LEARNING", "REFLECTIONS", "algorithm-reflections.jsonl");
+    reflectionText = existsSync(path) ? readFileSync(path, "utf8").slice(-65_536) : "";
+  } catch { /* no reflection evidence */ }
+  if (reflectionText.length === 65_536) reflectionText = reflectionText.slice(reflectionText.indexOf("\n") + 1);
+  const reflections = reflectionText.trim().split("\n");
+  for (const line of reflections.reverse()) {
+    try {
+      const row = JSON.parse(line);
+      const reflection = row?.reflection ?? row?.theme ?? row?.topic;
+      if (typeof reflection === "string" && reflection.trim()) { blocks.push(`LifeOS last reflection: ${reflection.slice(0, 300)}`); break; }
+    } catch { /* malformed historical rows are not injected */ }
   }
   // Tail-bounded: a partial first row cannot become a valid new signal.
   const ratingPath = join(roots.memoryRoot, "LEARNING", "SIGNALS", "ratings.jsonl");
