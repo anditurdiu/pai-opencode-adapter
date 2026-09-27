@@ -77,7 +77,8 @@ export default (async ({ client, directory }) => {
           apply: async () => ({ ok: false, code: "review-writes-disabled" }),
         });
         const counts = journal.statusCounts();
-        const code = counts["uncertain-write"] || counts["blocked-governance"] ? "blocked-governance"
+        const code = counts["uncertain-write"] ? "uncertain-write"
+          : counts["blocked-governance"] ? "blocked-governance"
           : counts["failed-retryable"] ? "failed-retryable"
           : counts.succeeded ? "succeeded" : counts.noop ? "noop" : outcome.state;
         journal.recordStatus("review-result", code);

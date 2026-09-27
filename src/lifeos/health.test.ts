@@ -9,7 +9,7 @@ test("missing evidence and failures cannot be painted green by historic success"
   const prior = counts(); prior.succeeded = 1; prior["failed-retryable"] = 1;
   expect(operationalHealth({ initializedAt: "2026-09-27T00:00:00Z", lastSuccessfulReview: "2026-09-27T00:00:00Z", counts: prior }).state).toBe("failed-retryable");
   prior["uncertain-write"] = 1;
-  expect(operationalHealth({ initializedAt: "2026-09-27T00:00:00Z", lastSuccessfulReview: "2026-09-27T00:00:00Z", counts: prior }).state).toBe("blocked-governance");
+  expect(operationalHealth({ initializedAt: "2026-09-27T00:00:00Z", lastSuccessfulReview: "2026-09-27T00:00:00Z", counts: prior }).state).toBe("uncertain-write");
 });
 
 test("a journal failure is not green even if an older success exists", () => {

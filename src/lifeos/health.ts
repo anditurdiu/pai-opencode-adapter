@@ -1,6 +1,6 @@
 import type { Disposition } from "./journal.js";
 
-export type OperationalState = "not-running" | "waiting-for-cadence" | "in-progress" | "succeeded" | "noop" | "failed-retryable" | "blocked-governance";
+export type OperationalState = "not-running" | "waiting-for-cadence" | "in-progress" | "succeeded" | "noop" | "failed-retryable" | "blocked-governance" | "uncertain-write";
 export interface HealthEvidence {
   initializedAt?: string;
   lastCapturedFeedback?: string;
@@ -17,7 +17,8 @@ export interface HealthEvidence {
 export function operationalHealth(evidence: HealthEvidence): { state: OperationalState; evidence: HealthEvidence } {
   const counts = evidence.counts;
   if (!evidence.initializedAt) return { state: "not-running", evidence };
-  if (counts["blocked-governance"] || counts["uncertain-write"]) return { state: "blocked-governance", evidence };
+  if (counts["uncertain-write"]) return { state: "uncertain-write", evidence };
+  if (counts["blocked-governance"]) return { state: "blocked-governance", evidence };
   if (counts["failed-retryable"] || evidence.latestError) return { state: "failed-retryable", evidence };
   if (counts.reviewing || counts.applying) return { state: "in-progress", evidence };
   if (evidence.lastSuccessfulReview && counts.succeeded) return { state: "succeeded", evidence };
