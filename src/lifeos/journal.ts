@@ -67,6 +67,15 @@ export class ReviewJournal {
     const file = join(this.root, "health.jsonl");
     writeFileSync(file, JSON.stringify({ at: new Date().toISOString(), event, code }) + "\n", { flag: "a", mode: 0o600 });
   }
+  latestStatus(): { at: string; event: string; code: string } | undefined {
+    const file = join(this.root, "health.jsonl");
+    if (!existsSync(file)) return undefined;
+    const last = readFileSync(file, "utf8").trim().split("\n").at(-1);
+    if (!last) return undefined;
+    const row = JSON.parse(last);
+    if (typeof row.at !== "string" || typeof row.event !== "string" || typeof row.code !== "string") throw new Error("invalid health row");
+    return row;
+  }
   private async locked<T>(key: string, action: () => Promise<T>): Promise<T | { status: "contended" }> {
     const lock = `${this.path(key)}.lock`;
     let fd: number;

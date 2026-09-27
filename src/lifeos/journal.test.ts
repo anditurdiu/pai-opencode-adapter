@@ -68,5 +68,6 @@ test("feedback persists one classification per session/message, independent acro
 test("health marker logs only bounded codes, not raw transcript text", () => {
   const dir = root(); const journal = new ReviewJournal(dir);
   journal.recordStatus("loaded", "read-side-ready");
+  expect(journal.latestStatus()?.code).toBe("read-side-ready");
   expect(() => journal.recordStatus("error", "private conversation content goes here")).toThrow();
 });

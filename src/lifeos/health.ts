@@ -24,3 +24,16 @@ export function operationalHealth(evidence: HealthEvidence): { state: Operationa
   if (evidence.lastSuccessfulReview && counts.noop) return { state: "noop", evidence };
   return { state: "waiting-for-cadence", evidence };
 }
+
+export function healthFromJournal(journal: {
+  statusCounts(): Record<Disposition, number>;
+  latestStatus(): { at: string; event: string; code: string } | undefined;
+}) {
+  const row = journal.latestStatus();
+  const counts = journal.statusCounts();
+  const evidence: HealthEvidence = { counts, ...(row ? { initializedAt: row.at } : {}) };
+  if (!row) return operationalHealth(evidence);
+  if (row.event === "review-result" && row.code === "failed-retryable") evidence.latestError = "review-failed";
+  if (row.event === "review-result" && ["succeeded", "noop"].includes(row.code)) evidence.lastSuccessfulReview = row.at;
+  return operationalHealth(evidence);
+}
