@@ -5,7 +5,7 @@ project: pai-opencode-adapter
 phase: climbing
 progress: 0/29
 started: 2026-09-27T10:08:32Z
-updated: 2026-09-27T13:14:17Z
+updated: 2026-09-27T13:21:50Z
 principal_stated_goal: "Build one LifeOS-specific OpenCode integration, deliverable on the Mac and Proxmox host, that closes a verifiable local loop:"
 principal_stated_goal_source: prompt
 principal_stated_goal_signal: 4
@@ -187,6 +187,7 @@ Why: once verified, an upstream or host change cannot silently invalidate the lo
 - 2026-09-27: A full 80-message SDK fetch cannot prove the preceding history is absent. The scheduler now defers that window without inference or writes and reports backlog; fixture verifies no reviewer call. Older-history pagination/catch-up remains an open acceptance condition.
 - 2026-09-27: Restart fixture confirms an `uncertain-write` span never invokes reviewer or writer again; it remains blocked pending explicit reconciliation. This proves no automatic duplicate application, not recovery or completion of the interrupted item.
 - 2026-09-27: Operational health now reports `uncertain-write` separately from governance refusal, so an interrupted append cannot hide behind a generic block. The durable journal still needs authority-based reconciliation before that state can clear.
+- 2026-09-27: Tier-B note appends and proposal queue writes can land before the journal's terminal row. An automatic retry based only on the current item digest was rejected; the canonical target and pre-write identity must be pinned for reconciliation. Until then an interrupted write stays visibly blocked, with no live autonomous writer enabled.
 
 ## Remaining Work
 
