@@ -6,6 +6,7 @@ import { resolveRoots } from "./contracts.js";
 import { assertAllowedTool } from "./guard.js";
 import { classifyFeedback } from "./feedback.js";
 import { ReviewJournal } from "./journal.js";
+import { searchCanonical } from "./context.js";
 
 /** Observational plugin candidate. Reviewer/writes remain disabled until host gates pass. */
 export default (async ({ client, directory }) => {
@@ -18,6 +19,11 @@ export default (async ({ client, directory }) => {
   const bridge = createReadBridge({ ...roots, skillRoot });
   const journal = new ReviewJournal(join(memoryAlias, "STATE", "opencode-feedback"));
   journal.recordStatus("loaded", "read-side-ready");
+  const queries = new Map<string, string>();
+  const cortex = async (args: string[]) => {
+    const module = await import(join(configRoot, "LIFEOS", "TOOLS", "Cortex.ts"));
+    return module.runCortex(args);
+  };
   return {
     "chat.message": async (input, output) => {
       const session = await client.session.get({ path: { id: input.sessionID }, query: { directory } });
@@ -25,6 +31,7 @@ export default (async ({ client, directory }) => {
       const parts = output.parts as { type: string; text?: string; synthetic?: boolean }[];
       if (parts.some(part => part.synthetic)) return;
       bridge.capture(input.sessionID, parts);
+      queries.set(input.sessionID, parts.filter(part => part.type === "text").map(part => part.text ?? "").join(" ").slice(0, 512));
       const feedback = classifyFeedback(parts.filter(part => part.type === "text").map(part => part.text ?? "").join("\n"));
       const messageID = input.messageID ?? output.message?.id;
       if (feedback.kind !== "none" && messageID) {
@@ -36,11 +43,21 @@ export default (async ({ client, directory }) => {
       const session = await client.session.get({ path: { id: input.sessionID }, query: { directory } });
       if (session.error || !session.data || session.data.parentID) return;
       const blocks = bridge.context(input.sessionID);
+      const query = queries.get(input.sessionID);
+      if (query && existsSync(join(configRoot, "LIFEOS", "TOOLS", "Cortex.ts"))) {
+        try {
+          const selected = await searchCanonical({ run: cortex }, query);
+          if (selected.length) {
+            blocks.push(`Relevant LifeOS Cortex context:\n${selected.map(record => `- ${record.text}`).join("\n")}`);
+            journal.recordStatus("retrieval", "records-selected");
+          }
+        } catch { journal.recordStatus("error", "retrieval-failed"); }
+      }
       if (blocks.length) output.system.push(blocks.join("\n\n"));
     },
     "tool.execute.before": async (input, output) => { assertAllowedTool(input.tool, output.args); },
     event: async ({ event }) => {
-      if (event.type === "session.deleted") bridge.forget(event.properties.info.id);
+      if (event.type === "session.deleted") { bridge.forget(event.properties.info.id); queries.delete(event.properties.info.id); }
       if (event.type === "session.idle") journal.recordStatus("idle", "review-not-enabled");
     },
   };
