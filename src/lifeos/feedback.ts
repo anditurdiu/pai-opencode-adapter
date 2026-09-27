@@ -14,7 +14,7 @@ const praise = /^(?:excellent|amazing|brilliant|fantastic|wonderful|beautiful|in
 
 export function classifyFeedback(message: string): Feedback {
   const text = message.trim();
-  if (text.length < 3 || text.startsWith("/") || /^(?:<task-notification>|<system-reminder>|This session is being continued)/i.test(text)) return { kind: "none" };
+  if (!text || text.startsWith("/") || /^(?:<task-notification>|<system-reminder>|This session is being continued)/i.test(text)) return { kind: "none" };
   const normalized = text.toLowerCase().replace(/[‘’ʼ`]/g, "'");
   const word = /^(one|two|three|four|five|six|seven|eight|nine|ten)(?:$|[!., ]+(.*))$/i.exec(text);
   if (word) return { kind: "rating", value: words[word[1]!.toLowerCase()]!, ...(word[2]?.trim() ? { comment: word[2].trim() } : {}) };
@@ -30,6 +30,7 @@ export function classifyFeedback(message: string): Feedback {
     if (!/^[\/.)\]\dA-Za-z]|^[^\x00-\x7f]/.test(after) && (!comment || (comment.length <= 80 && !sentence.test(comment))))
       return { kind: "rating", value: Number(bare[1]!), ...(comment ? { comment } : {}) };
   }
+  if (text.length < 3) return { kind: "none" };
   if (text.length >= 10 && (/^no[,.]|^nope\b/.test(normalized) || corrections.some(p => normalized.includes(p)) || /\b(fucking|wtf|what the fuck)\b/.test(normalized) && /\b(you|your|it|code|banner|test|build|hook|file|page|deploy|fix|script|output|response)\b/.test(normalized)))
     return { kind: "correction", text };
   if (text.length >= 15 && directives.some(pattern => pattern.test(normalized))) return { kind: "directive", text };

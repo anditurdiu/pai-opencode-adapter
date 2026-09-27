@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { classifyFeedback } from "./feedback.js";
 
 test("numeric rating forms do not swallow numbered tasks", () => {
+  expect(classifyFeedback("8")).toEqual({ kind: "rating", value: 8 });
   expect(classifyFeedback("8 nice")).toEqual({ kind: "rating", value: 8, comment: "nice" });
   expect(classifyFeedback("10/10 thank you")).toEqual({ kind: "rating", value: 10, comment: "thank you" });
   expect(classifyFeedback("2/10 items are done")).toEqual({ kind: "none" });
