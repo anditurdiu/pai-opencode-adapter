@@ -29,7 +29,7 @@ export interface SchedulerResult { state: "child" | "failed-fetch" | "waiting" |
 /** Primary-session idle only. No mutation is dispatched until the host supplies a governed writer. */
 export async function reviewPrimaryIdle(input: {
   sessionID: string; client: SessionAuthority; journal: ReviewJournal; reviewerIDs: ReadonlySet<string>;
-  review: (exchange: { user: string; assistant: string }, sessionID: string) => Promise<ReviewResult>;
+  review: (exchange: { user: string; assistant: string; model?: { providerID: string; modelID: string } }, sessionID: string) => Promise<ReviewResult>;
   apply: (item: unknown) => Promise<{ ok: boolean; code?: string }>;
 }): Promise<SchedulerResult> {
   if (input.reviewerIDs.has(input.sessionID)) return { state: "child", attempts: 0, olderUnreviewed: false };
@@ -48,7 +48,9 @@ export async function reviewPrimaryIdle(input: {
     if (feedbackOnly(exchange.user)) continue;
     if (input.journal.read(key)?.status === "succeeded" || input.journal.read(key)?.status === "noop") continue;
     const outcome = await input.journal.process({ sessionID: input.sessionID, userID: exchange.userID, assistantIDs: exchange.assistantIDs }, async () => {
-      const reviewed = await input.review({ user: stripPrivate(exchange.user), assistant: stripPrivate(exchange.assistant) }, input.sessionID);
+      const source = messages.data!.find(message => message.info.id === exchange.userID);
+      const model = source && "model" in source.info ? source.info.model as { providerID: string; modelID: string } : undefined;
+      const reviewed = await input.review({ user: stripPrivate(exchange.user), assistant: stripPrivate(exchange.assistant), model }, input.sessionID);
       if (!reviewed.ok) throw new Error(reviewed.reason);
       if (reviewed.result.disposition === "noop") return { type: "noop" };
       return { type: "item", item: reviewed.result.item };

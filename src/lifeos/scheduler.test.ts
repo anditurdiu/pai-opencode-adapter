@@ -74,3 +74,13 @@ test("a bare rating never creates a durable memory candidate", async () => {
   expect(result.attempts).toBe(0);
   expect(called).toBe(0);
 });
+
+test("review receives the actual selected model from the completed user's message", async () => {
+  const journal = new ReviewJournal(mkdtempSync(join(tmpdir(), "lifeos-model-")));
+  const message = user("model-turn"); message.info.model = { providerID: "fixture-provider", modelID: "fixture-model" };
+  let observed: unknown;
+  await reviewPrimaryIdle({ sessionID: "main", client: setup([message, assistant("answer")]), journal, reviewerIDs: new Set(),
+    review: async exchange => { observed = exchange.model; return { ok: true, result: { disposition: "noop" }, providerID: "fixture", modelID: "fixture" }; },
+    apply: async () => ({ ok: true }) });
+  expect(observed).toEqual({ providerID: "fixture-provider", modelID: "fixture-model" });
+});

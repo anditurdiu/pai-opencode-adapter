@@ -1,6 +1,6 @@
 /** Pure OpenCode message-authority projection; caller supplies a primary session from session.get. */
 export interface MessageRow {
-  info: { id: string; role: "user" | "assistant"; sessionID: string; time: { created: number; completed?: number }; error?: unknown; finish?: string; parentID?: string };
+  info: { id: string; role: "user" | "assistant"; sessionID: string; time: { created: number; completed?: number }; error?: unknown; finish?: string; parentID?: string; model?: { providerID: string; modelID: string } };
   parts: { type: string; text?: string }[];
 }
 export interface Exchange { userID: string; assistantIDs: string[]; user: string; assistant: string }
