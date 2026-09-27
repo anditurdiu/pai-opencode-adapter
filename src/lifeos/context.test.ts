@@ -60,3 +60,11 @@ test("last reflection is bounded and available with no rating", () => {
   writeFileSync(join(memoryRoot, "LEARNING", "REFLECTIONS", "algorithm-reflections.jsonl"), JSON.stringify({ reflection: "Synthetic learning" }));
   expect(readTurnContext({ userRoot, memoryRoot }).blocks).toContain("LifeOS last reflection: Synthetic learning");
 });
+
+test("an initially templated hot-memory file becomes visible once the canonical writer adds an entry", () => {
+  const root = mkdtempSync(join(tmpdir(), "lifeos-template-hot-"));
+  const userRoot = join(root, "USER"), memoryRoot = join(root, "MEMORY");
+  mkdirSync(join(userRoot, "PRINCIPAL"), { recursive: true }); mkdirSync(memoryRoot);
+  writeFileSync(join(userRoot, "PRINCIPAL", "PRINCIPAL_MEMORY.md"), "---\nprovenance: template\n---\n<!-- BEGIN ENTRIES -->\nPREFERENCE: Synthetic short answers\n<!-- END ENTRIES -->\n");
+  expect(readTurnContext({ userRoot, memoryRoot }).blocks.join("\n")).toContain("Synthetic short answers");
+});
