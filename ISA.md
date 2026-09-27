@@ -5,7 +5,7 @@ project: pai-opencode-adapter
 phase: climbing
 progress: 0/29
 started: 2026-09-27T10:08:32Z
-updated: 2026-09-27T12:42:28Z
+updated: 2026-09-27T12:47:09Z
 principal_stated_goal: "Build one LifeOS-specific OpenCode integration, deliverable on the Mac and Proxmox host, that closes a verifiable local loop:"
 principal_stated_goal_source: prompt
 principal_stated_goal_signal: 4
@@ -181,6 +181,7 @@ Why: once verified, an upstream or host change cannot silently invalidate the lo
 - 2026-09-27: Independent second-host read-only baseline still reports OpenCode/Bun available and current config valid with the prior plugin. Disposable installer, writer and scheduler probes pass on the Mac fixture; neither host has been promoted to live writer/reviewer status.
 - 2026-09-27: A genuine single-plugin isolated run did fire idle review but its provider returned a retryable failure; the initial health marker misleadingly said `reviewed`. Health reporting was corrected to derive from the durable journal, and a repeat isolated probe reported `failed-retryable`. No host was promoted on this failure.
 - 2026-09-27: Idle scheduling now attempts at most one complete span per event, preserves older-first order and reports remaining spans/full-window ambiguity as backlog. This caps reviewer inference volume without pretending an exactly full SDK message window covers all history; fixture passed, host cadence remains unverified.
+- 2026-09-27: Journal-based operational health now reads latest status and disposition counts; a later retryable failure outranks an older success in fixtures. This is only an adapter-local assessor, not proof the installed Cortex health gates recognize the new reviewer.
 
 ## Remaining Work
 
