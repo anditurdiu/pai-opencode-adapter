@@ -3,9 +3,9 @@ task: "Integrate LifeOS with OpenCode across supported hosts"
 slug: 20260927-lifeos-opencode-integration
 project: pai-opencode-adapter
 phase: climbing
-progress: 0/28
+progress: 0/29
 started: 2026-09-27T10:08:32Z
-updated: 2026-09-27T11:24:48Z
+updated: 2026-09-27T11:25:39Z
 principal_stated_goal: "Build one LifeOS-specific OpenCode integration, deliverable on the Mac and Proxmox host, that closes a verifiable local loop:"
 principal_stated_goal_source: prompt
 principal_stated_goal_signal: 4
@@ -82,6 +82,7 @@ Preserve native OpenCode provider choice and LifeOS’s canonical USER/MEMORY au
 | ISC-26 | bun-test | Anti: public repository contains private host evidence or installed secrets | zero matches | staged-content privacy audit | derived: privacy |
 | ISC-27 | bun-test | Anti: stale or test-only rating becomes fresh injected learning | zero matches | timed rating fixture | derived: precision |
 | ISC-28 | bun-test | Anti: update automatically marks parity green after a contract mutation | zero matches | synthetic upstream diff | literal |
+| ISC-29 | manual | active agents load intended prompts, routing, model carrier and effective native permissions | per-agent evidence; no inert safety settings counted as enforced | effective config inspection and agent invocation probes | derived: agent compatibility |
 
 ## Features
 
@@ -132,6 +133,7 @@ Why: hooking an event is not the same as blocking an unsafe action or recovering
 - [ ] ISC-19: Work/ISA observations reconcile on-disk changes, separate concurrent sessions and survive restart.
 - [ ] ISC-20: Completed-response enforcement is claimed only after a live pre-display blocking probe; otherwise marked advisory.
 - [ ] ISC-21: Compaction continues with the active ISA and excludes reviewer sessions.
+- [ ] ISC-29: Active agent definitions have host-verified prompt, routing, model carrier and native permission behavior; Claude-specific metadata that OpenCode ignores is mapped or explicitly advisory.
 
 ### F6 · Update detection and rollout
 Why: once verified, an upstream or host change cannot silently invalidate the local loop.
