@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { applyThroughCortex, canonicalBeforeDigest, MISSING_CANONICAL_DIGEST, prepareCanonicalItem } from "./writer.js";
+import { applyThroughCortex, canonicalBeforeDigest, MISSING_CANONICAL_DIGEST, prepareCanonicalItem, reconcileCanonicalFingerprint } from "./writer.js";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -25,4 +25,13 @@ test("preflight pins the writer-selected target rather than inventing a path", a
   const dir = mkdtempSync(join(tmpdir(), "lifeos-preflight-")), file = join(dir, "note.md");
   expect(await prepareCanonicalItem(async () => ({ ok: true, path: file }), { type: "idea" })).toEqual({ target: file, beforeDigest: MISSING_CANONICAL_DIGEST });
   await expect(prepareCanonicalItem(async () => ({ ok: false, path: file }), { type: "idea" })).rejects.toThrow();
+});
+
+test("reconciliation sees changed canonical bytes and refuses an unpinned target", () => {
+  const dir = mkdtempSync(join(tmpdir(), "lifeos-reconcile-")), file = join(dir, "note.md");
+  const intent = { target: file, beforeDigest: canonicalBeforeDigest(file) };
+  expect(reconcileCanonicalFingerprint(intent, file)).toBe("unchanged");
+  writeFileSync(file, "canonical result");
+  expect(reconcileCanonicalFingerprint(intent, file)).toBe("changed");
+  expect(reconcileCanonicalFingerprint(intent, join(dir, "different.md"))).toBe("unverifiable");
 });

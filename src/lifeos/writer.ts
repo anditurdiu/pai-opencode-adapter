@@ -28,3 +28,10 @@ export async function prepareCanonicalItem(resolveItem: (item: unknown) => Promi
   if (!resolved.ok || typeof resolved.path !== "string") throw new Error("canonical writer refused to resolve target");
   return { target: resolved.path, beforeDigest: canonicalBeforeDigest(resolved.path) };
 }
+
+/** Advisory comparison only: changed bytes may be another writer, unchanged bytes do not prove no transient side effect. */
+export function reconcileCanonicalFingerprint(intent: { target?: string; beforeDigest?: string }, currentTarget: string): "unchanged" | "changed" | "unverifiable" {
+  if (!intent.target || !intent.beforeDigest || intent.target !== currentTarget) return "unverifiable";
+  try { return canonicalBeforeDigest(intent.target) === intent.beforeDigest ? "unchanged" : "changed"; }
+  catch { return "unverifiable"; }
+}
