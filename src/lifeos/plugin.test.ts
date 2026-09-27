@@ -29,6 +29,10 @@ test("actual plugin hooks inject primary-only context while retaining system/par
     expect(primary.system.join("\n")).toContain("Fixture");
     expect(primary.system.join("\n")).toContain("skill route: ISA");
     expect(parts).toEqual([{ type: "text", text: "create an ISA" }]);
+    await hooks["chat.message"]!({ sessionID: "main", messageID: "user-private" } as any, { parts: [{ type: "text", text: "Public <private>never search this</private> fixture" }], message: { id: "user-private" } } as any);
+    const afterPrivate = { system: [] as string[] };
+    await hooks["experimental.chat.system.transform"]!({ sessionID: "main" } as any, afterPrivate);
+    expect(afterPrivate.system.join("\n")).not.toContain("never search this");
     const child = { system: [] as string[] };
     await hooks["chat.message"]!({ sessionID: "child", messageID: "child-1" } as any, { parts, message: { id: "child-1" } } as any);
     await hooks["experimental.chat.system.transform"]!({ sessionID: "child" } as any, child);

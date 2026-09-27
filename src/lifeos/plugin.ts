@@ -7,6 +7,7 @@ import { assertAllowedTool } from "./guard.js";
 import { classifyFeedback } from "./feedback.js";
 import { ReviewJournal } from "./journal.js";
 import { searchCanonical } from "./context.js";
+import { stripPrivate } from "./reviewer.js";
 
 /** Observational plugin candidate. Reviewer/writes remain disabled until host gates pass. */
 export default (async ({ client, directory }) => {
@@ -30,9 +31,9 @@ export default (async ({ client, directory }) => {
       if (session.error || !session.data || session.data.parentID) return;
       const parts = output.parts as { type: string; text?: string; synthetic?: boolean }[];
       if (parts.some(part => part.synthetic)) return;
-      bridge.capture(input.sessionID, parts);
-      queries.set(input.sessionID, parts.filter(part => part.type === "text").map(part => part.text ?? "").join(" ").slice(0, 512));
-      const feedback = classifyFeedback(parts.filter(part => part.type === "text").map(part => part.text ?? "").join("\n"));
+      bridge.capture(input.sessionID, parts.map(part => part.type === "text" ? { ...part, text: stripPrivate(part.text ?? "") } : part));
+      queries.set(input.sessionID, stripPrivate(parts.filter(part => part.type === "text").map(part => part.text ?? "").join(" ")).slice(0, 512));
+      const feedback = classifyFeedback(stripPrivate(parts.filter(part => part.type === "text").map(part => part.text ?? "").join("\n")));
       const messageID = input.messageID ?? output.message?.id;
       if (feedback.kind !== "none" && messageID) {
         journal.recordFeedback(input.sessionID, messageID, feedback.kind);
