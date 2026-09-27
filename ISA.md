@@ -5,7 +5,7 @@ project: pai-opencode-adapter
 phase: climbing
 progress: 0/29
 started: 2026-09-27T10:08:32Z
-updated: 2026-09-27T11:49:14Z
+updated: 2026-09-27T11:50:52Z
 principal_stated_goal: "Build one LifeOS-specific OpenCode integration, deliverable on the Mac and Proxmox host, that closes a verifiable local loop:"
 principal_stated_goal_source: prompt
 principal_stated_goal_signal: 4
@@ -170,6 +170,7 @@ Why: once verified, an upstream or host change cannot silently invalidate the lo
 - 2026-09-27: An initial candidate startup probe unknowingly loaded both global and test plugins; it was invalidated. A separate-HOME isolated config reported one candidate plugin and its synthetic USER/MEMORY roots, and the candidate produced the constitutional banner with test instructions. This is a fixture, not Mac live replacement or provider-parity evidence; the real skill discovery collision remains open.
 - 2026-09-27: The candidate plugin initializes as sole owner under a synthetic config root; read-only Cortex status on the Mac still resolves the local MEMORY authority. Mac live registration is unchanged. Host-specific provider, skill-discovery and read-side parity scenarios remain open before replacement.
 - 2026-09-27: Operational health states now distinguish missing evidence, pending cadence, progress, success/no-op, retryable failure, and governance block in fixtures. The Mac plugin still reports review disabled, not success; host evidence collection remains open.
+- 2026-09-27: A separate-HOME isolated OpenCode run with one candidate plugin and synthetic USER/MEMORY returned the constitutional banner under its available model. It does not establish Mac live plugin replacement or Copilot execution from that fixture HOME; both remain open.
 
 ## Remaining Work
 
