@@ -12,6 +12,7 @@ The project state of record is [ISA.md](ISA.md). Unchecked ISCs remain open. Thi
 - `plugin.ts` is an observational candidate exercised through the plugin hook interface in a fixture: it injects primary-session read context, records feedback signal type by SDK session/message ID and throws on a narrow redirected-writer command. It is not registered on the Mac or enabled for canonical mutations; a live pre-tool block and permissions matrix still need testing.
 - `completeExchanges` projects complete text exchanges from SDK-shaped message rows and flags a truncated fetch window. It is not a restart-safe transaction scheduler and cannot by itself prove that historical unreviewed messages were recovered.
 - Host manifests, selected paths, USER/MEMORY content, reviewer exchanges and operational reports belong outside this public repository. Never commit machine-local reports, credentials or customer data here.
+- The two supported hosts need independent root checks; a linked USER alias is not guaranteed under the OpenCode config tree. Canonical USER authority must be resolved independently from the plugin's MEMORY authority.
 
 ## Promotion gates
 

@@ -17,7 +17,7 @@ export default (async ({ client, directory }) => {
   const skillRoot = join(configRoot, "skills");
   if (!existsSync(skillRoot)) throw new Error("LifeOS installed skills are missing");
   const bridge = createReadBridge({ ...roots, skillRoot });
-  const journal = new ReviewJournal(join(memoryAlias, "STATE", "opencode-feedback"));
+  let journal: ReviewJournal | undefined;
   return {
     "chat.message": async (input, output) => {
       const session = await client.session.get({ path: { id: input.sessionID }, query: { directory } });
@@ -27,7 +27,10 @@ export default (async ({ client, directory }) => {
       bridge.capture(input.sessionID, parts);
       const feedback = classifyFeedback(parts.filter(part => part.type === "text").map(part => part.text ?? "").join("\n"));
       const messageID = input.messageID ?? output.message?.id;
-      if (feedback.kind !== "none" && messageID) journal.recordFeedback(input.sessionID, messageID, feedback.kind);
+      if (feedback.kind !== "none" && messageID) {
+        journal ??= new ReviewJournal(join(memoryAlias, "STATE", "opencode-feedback"));
+        journal.recordFeedback(input.sessionID, messageID, feedback.kind);
+      }
     },
     "experimental.chat.system.transform": async (input, output) => {
       if (!input.sessionID) return;
